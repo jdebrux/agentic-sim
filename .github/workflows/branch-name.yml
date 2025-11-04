@@ -1,0 +1,18 @@
+name: Enforce Branch Naming
+on:
+  push:
+    branches-ignore:
+      - main
+      - develop
+jobs:
+  check-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate branch name
+        run: |
+          BRANCH=${GITHUB_REF#refs/heads/}
+          if [[ ! "$BRANCH" =~ ^(feature|fix|chore|docs|refactor|test|perf)/[a-z0-9._-]+$ ]]; then
+            echo "❌ Invalid branch name: $BRANCH"
+            echo "✅ Must follow: feature/*, fix/*, chore/*, etc."
+            exit 1
+          fi
