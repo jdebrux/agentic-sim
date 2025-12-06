@@ -83,23 +83,47 @@ func TestEngineHandleAction(t *testing.T) {
 			t.Fatalf("expected error in event payload, got %v", errVal)
 		}
 	})
+
+	t.Run("records error for invalid interaction", func(t *testing.T) {
+		w := world.NewWorld()
+		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default"}
+		engine := &Engine{World: w}
+		action := model.AgentAction{
+			ActorID:  "agent-1",
+			Type:     model.ActionInteract,
+			TargetID: "",
+		}
+
+		engine.handleAction(context.Background(), action)
+
+		if len(w.Events) != 1 {
+			t.Fatalf("expected 1 event, got %d", len(w.Events))
+		}
+		event := w.Events[0]
+		errVal, ok := event.Payload["error"]
+		if !ok || errVal == nil || errVal == "" {
+			t.Fatalf("expected error in event payload for invalid interaction, got %v", errVal)
+		}
+	})
 }
 
 // TestEngineRunCoversLoop verifies ticks advance and actions are processed.
 func TestEngineRunCoversLoop(t *testing.T) {
 	w := world.NewWorld()
+	w.Locations["loc_target"] = world.Location{ID: "loc_target"}
 
-	agentA := mockAgent{
+	moveAgent := mockAgent{
 		id:   "agent-1",
-		name: "A",
+		name: "Mover",
 		action: model.AgentAction{
-			ActorID: "agent-1",
-			Type:    model.ActionIdle,
+			ActorID:  "agent-1",
+			Type:     model.ActionMove,
+			Location: "loc_target",
 		},
 	}
-	agentB := mockAgent{
+	speakAgent := mockAgent{
 		id:   "agent-2",
-		name: "B",
+		name: "Speaker",
 		action: model.AgentAction{
 			ActorID: "agent-2",
 			Type:    model.ActionSpeak,
@@ -107,21 +131,24 @@ func TestEngineRunCoversLoop(t *testing.T) {
 		},
 	}
 
-	w.Agents[agentA.id] = &world.AgentState{ID: agentA.id, Name: agentA.name, Location: "loc_default"}
-	w.Agents[agentB.id] = &world.AgentState{ID: agentB.id, Name: agentB.name, Location: "loc_default"}
+	w.Agents[moveAgent.id] = &world.AgentState{ID: moveAgent.id, Name: moveAgent.name, Location: "loc_default"}
+	w.Agents[speakAgent.id] = &world.AgentState{ID: speakAgent.id, Name: speakAgent.name, Location: "loc_default"}
 
 	engine := &Engine{
 		World:  w,
-		Agents: []agents.Agent{agentA, agentB},
+		Agents: []agents.Agent{moveAgent, speakAgent},
 		Tick:   5 * time.Millisecond,
 	}
 
-	engine.Run(context.Background(), 25*time.Millisecond)
+	engine.Run(context.Background(), 12*time.Millisecond)
 
 	if w.Timestep == 0 {
 		t.Fatalf("expected timestep to advance, got %d", w.Timestep)
 	}
-	if len(w.Events) == 0 {
-		t.Fatalf("expected at least one event to be recorded")
+	if len(w.Events) < 2 {
+		t.Fatalf("expected at least one event per agent, got %d", len(w.Events))
+	}
+	if got := w.Agents[moveAgent.id].Location; got != "loc_target" {
+		t.Fatalf("expected mover to reach loc_target, got %s", got)
 	}
 }
