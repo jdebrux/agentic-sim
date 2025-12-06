@@ -90,32 +90,6 @@ func TestBasicAgentTick(t *testing.T) {
 	})
 }
 
-// helper creates a minimal world view for tests.
-func testWorldView(t *testing.T) world.WorldView {
-	t.Helper()
-
-	w := world.NewWorld()
-	w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default"}
-	return world.NewWorldView(w, "agent-1", 3)
-}
-
-// helper creates a mock response for runner-based tests.
-func testRunnerAction() model.AgentAction {
-	return model.AgentAction{
-		ActorID: "agent-1",
-		Type:    model.ActionSpeak,
-		Message: "hello",
-	}
-}
-
-// ensures helpers are used to avoid linter complaints about unused symbols when tests are skipped.
-var (
-	_ = testWorldView
-	_ = testRunnerAction
-	_ = context.Background
-	_ = adk.MockRunner{}
-)
-
 // assertErrorSentinel is a lightweight error to drive runner failures in tests.
 type assertErrorSentinel struct{}
 
