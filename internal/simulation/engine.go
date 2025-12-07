@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/jdebrux/agentic-sim/internal/adk"
 	"github.com/jdebrux/agentic-sim/internal/agents"
 	"github.com/jdebrux/agentic-sim/internal/model"
 	"github.com/jdebrux/agentic-sim/internal/world"
@@ -18,13 +19,24 @@ type Engine struct {
 	Tick   time.Duration
 }
 
-// NewEngine initializes a new simulation engine.
+// EngineConfig toggles engine behavior.
+type EngineConfig struct {
+	UseSimpleRunner bool
+	Tick            time.Duration
+}
+
+// NewEngine initializes a new simulation engine with defaults.
 func NewEngine() *Engine {
+	return NewEngineWithConfig(EngineConfig{})
+}
+
+// NewEngineWithConfig allows optional toggles (e.g., simple runner).
+func NewEngineWithConfig(cfg EngineConfig) *Engine {
 	w := world.NewWorld()
 
 	agentList := []agents.Agent{
-		agents.NewBasicAgent("agent-alice", "Alice"),
-		agents.NewBasicAgent("agent-bob", "Bob"),
+		newAgentWithConfig("agent-alice", "Alice", cfg),
+		newAgentWithConfig("agent-bob", "Bob", cfg),
 	}
 
 	for _, a := range agentList {
@@ -43,8 +55,22 @@ func NewEngine() *Engine {
 	return &Engine{
 		World:  w,
 		Agents: agentList,
-		Tick:   1 * time.Second,
+		Tick:   tickOrDefault(cfg.Tick, 1*time.Second),
 	}
+}
+
+func newAgentWithConfig(id, name string, cfg EngineConfig) agents.Agent {
+	if cfg.UseSimpleRunner {
+		return agents.NewBasicAgentWithRunner(id, name, &adk.SimpleRunner{})
+	}
+	return agents.NewBasicAgent(id, name)
+}
+
+func tickOrDefault(t time.Duration, def time.Duration) time.Duration {
+	if t > 0 {
+		return t
+	}
+	return def
 }
 
 // Run starts the simulation loop for a given duration.

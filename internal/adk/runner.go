@@ -39,3 +39,62 @@ func (m *MockRunner) DecideAction(ctx context.Context, req ReasoningRequest) (Re
 	m.Calls++
 	return m.Response, m.Err
 }
+
+// SimpleRunner is a synchronous, rule-based runner for local/testing use.
+// It chooses a deterministic action from the provided world view without LLMs.
+type SimpleRunner struct{}
+
+func (s *SimpleRunner) DecideAction(ctx context.Context, req ReasoningRequest) (ReasoningResponse, error) {
+	_ = ctx
+
+	// Prefer greeting a co-located agent if any.
+	for _, other := range req.View.OtherAgents {
+		if other.Location == req.View.Self.Location {
+			msg := "Hello " + other.Name + "!"
+			return ReasoningResponse{
+				Action: model.AgentAction{
+					ActorID:  req.AgentID,
+					TargetID: other.ID,
+					Type:     model.ActionGreet,
+					Message:  msg,
+					Reason:   "co-located agent",
+					ToolName: "greet",
+				},
+				Notes: map[string]string{"policy": "greet_co_located"},
+			}, nil
+		}
+	}
+
+	// Otherwise, move to market if not already there and it exists.
+	if req.View.Self.Location != "loc_market" {
+		for _, loc := range req.View.Locations {
+			if loc.ID == "loc_market" {
+				return ReasoningResponse{
+					Action: model.AgentAction{
+						ActorID:  req.AgentID,
+						Type:     model.ActionMove,
+						Location: "loc_market",
+						Reason:   "explore market",
+						ToolName: "move",
+						ToolArgs: map[string]string{"destination": "loc_market"},
+					},
+					Notes: map[string]string{"policy": "move_to_market"},
+				}, nil
+			}
+		}
+	}
+
+	// Fallback: speak current status.
+	msg := "Staying put at " + req.View.Self.Location
+	return ReasoningResponse{
+		Action: model.AgentAction{
+			ActorID:  req.AgentID,
+			Type:     model.ActionSpeak,
+			Message:  msg,
+			Reason:   "no other actions available",
+			ToolName: "speak",
+			ToolArgs: map[string]string{"message": msg},
+		},
+		Notes: map[string]string{"policy": "speak_status"},
+	}, nil
+}
