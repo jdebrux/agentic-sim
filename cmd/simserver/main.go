@@ -7,9 +7,11 @@ import (
 
 	"github.com/jdebrux/agentic-sim/internal/api"
 	"github.com/jdebrux/agentic-sim/internal/simulation"
+	"github.com/jdebrux/agentic-sim/pkg/utils"
 )
 
 func main() {
+	utils.InitLogger()
 	log.Println("Starting Agentic Simulation Environment (HTTP server)...")
 
 	mux := http.NewServeMux()

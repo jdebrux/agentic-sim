@@ -14,9 +14,16 @@ import (
 
 // Engine manages the simulation lifecycle.
 type Engine struct {
-	World  *world.World
-	Agents []agents.Agent
-	Tick   time.Duration
+	World   *world.World
+	Agents  []agents.Agent
+	Tick    time.Duration
+	Metrics Metrics
+}
+
+// Metrics captures basic counters for observability.
+type Metrics struct {
+	Ticks  int64
+	Events int64
 }
 
 // EngineConfig toggles engine behavior.
@@ -96,6 +103,7 @@ func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 			for _, a := range e.Agents {
 				view := world.NewWorldView(e.World, a.GetID(), 10)
 				action := a.Tick(ctx, view)
+				log.Printf("action.request tick=%d actor=%s type=%s target=%s location=%s reason=%s", e.World.Timestep, action.ActorID, action.Type, action.TargetID, action.Location, action.Reason)
 				actions = append(actions, action)
 			}
 
@@ -103,6 +111,7 @@ func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 				e.handleAction(ctx, action)
 			}
 			e.World.Advance()
+			e.Metrics.Ticks++
 		}
 	}
 }
@@ -161,8 +170,9 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 		log.Printf("action failed for %s: %v", action.ActorID, err)
 		event.Payload["error"] = err.Error()
 	} else {
-		log.Printf("action applied for %s: %s", action.ActorID, action.Type)
+		log.Printf("action.applied tick=%d actor=%s type=%s target=%s location=%s reason=%s", e.World.Timestep, action.ActorID, action.Type, action.TargetID, action.Location, action.Reason)
 	}
 
 	e.World.AddEvent(event)
+	e.Metrics.Events++
 }
