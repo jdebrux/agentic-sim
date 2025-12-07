@@ -10,6 +10,14 @@ type AgentState struct {
 	ID       string
 	Name     string
 	Location string
+	Traits   Traits
+	Goals    []string
+}
+
+// Traits captures simple personality traits for agents.
+type Traits struct {
+	Friendliness int
+	Curiosity    int
 }
 
 // Location represents a place within the world.
@@ -29,18 +37,23 @@ type World struct {
 }
 
 func NewWorld() *World {
-	// Seed with a single default location to keep the initial world valid.
-	defaultLocation := Location{
-		ID:          "loc_default",
-		Name:        "Central Plaza",
-		Description: "A neutral starting point for all agents.",
+	// Seed with a few default locations to keep the initial world valid.
+	defaultLocations := []Location{
+		{ID: "loc_default", Name: "Central Plaza", Description: "A neutral starting point for all agents."},
+		{ID: "loc_market", Name: "Marketplace", Description: "Bustling area for trading and chatting."},
+		{ID: "loc_park", Name: "Park", Description: "A quiet green space for strolling."},
+	}
+
+	locs := make(map[string]Location, len(defaultLocations))
+	for _, loc := range defaultLocations {
+		locs[loc.ID] = loc
 	}
 
 	return &World{
 		ID:        "world-1",
 		Timestep:  0,
 		Agents:    make(map[string]*AgentState),
-		Locations: map[string]Location{defaultLocation.ID: defaultLocation},
+		Locations: locs,
 		Events:    []Event{},
 	}
 }

@@ -105,6 +105,50 @@ func TestEngineHandleAction(t *testing.T) {
 			t.Fatalf("expected error in event payload for invalid interaction, got %v", errVal)
 		}
 	})
+
+	t.Run("applies greet when co-located", func(t *testing.T) {
+		w := world.NewWorld()
+		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default"}
+		w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_default"}
+		engine := &Engine{World: w}
+		action := model.AgentAction{
+			ActorID:  "agent-1",
+			TargetID: "agent-2",
+			Type:     model.ActionGreet,
+			Message:  "hi",
+		}
+
+		engine.handleAction(context.Background(), action)
+
+		if len(w.Events) != 1 {
+			t.Fatalf("expected 1 event, got %d", len(w.Events))
+		}
+		if errVal, ok := w.Events[0].Payload["error"]; ok && errVal != nil {
+			t.Fatalf("expected no error for valid greet, got %v", errVal)
+		}
+	})
+
+	t.Run("interaction requires co-location", func(t *testing.T) {
+		w := world.NewWorld()
+		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default"}
+		w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_market"}
+		engine := &Engine{World: w}
+		action := model.AgentAction{
+			ActorID:  "agent-1",
+			TargetID: "agent-2",
+			Type:     model.ActionInteract,
+		}
+
+		engine.handleAction(context.Background(), action)
+
+		if len(w.Events) != 1 {
+			t.Fatalf("expected 1 event, got %d", len(w.Events))
+		}
+		errVal, ok := w.Events[0].Payload["error"]
+		if !ok || errVal == nil || errVal == "" {
+			t.Fatalf("expected co-location error, got %v", errVal)
+		}
+	})
 }
 
 // TestEngineRunCoversLoop verifies ticks advance and actions are processed.

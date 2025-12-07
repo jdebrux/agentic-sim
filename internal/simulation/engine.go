@@ -32,6 +32,11 @@ func NewEngine() *Engine {
 			ID:       a.GetID(),
 			Name:     a.GetName(),
 			Location: "loc_default",
+			Traits: world.Traits{
+				Friendliness: 5,
+				Curiosity:    5,
+			},
+			Goals: []string{"explore", "socialize"},
 		}
 	}
 
@@ -93,6 +98,7 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 			"tool_args": action.ToolArgs,
 			"message":   action.Message,
 			"location":  action.Location,
+			"reason":    action.Reason,
 		},
 	}
 
@@ -101,9 +107,9 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 	switch action.Type {
 	case model.ActionMove:
 		err = e.World.MoveAgent(action.ActorID, action.Location)
-	case model.ActionInteract:
-		// For now, just validate both actors exist; interactions can be expanded later.
-		if _, ok := e.World.GetAgent(action.ActorID); !ok {
+	case model.ActionInteract, model.ActionGreet:
+		actor, ok := e.World.GetAgent(action.ActorID)
+		if !ok {
 			err = fmt.Errorf("actor %s not found for interaction", action.ActorID)
 			break
 		}
@@ -111,8 +117,13 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 			err = fmt.Errorf("interaction requires target")
 			break
 		}
-		if _, ok := e.World.GetAgent(action.TargetID); !ok {
+		target, ok := e.World.GetAgent(action.TargetID)
+		if !ok {
 			err = fmt.Errorf("target %s not found for interaction", action.TargetID)
+			break
+		}
+		if actor.Location != target.Location {
+			err = fmt.Errorf("interaction requires co-location at %s", actor.Location)
 		}
 	case model.ActionSpeak, model.ActionIdle:
 		// No world mutation required.

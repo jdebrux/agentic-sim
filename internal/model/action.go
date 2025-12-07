@@ -8,6 +8,7 @@ const (
 	ActionMove     ActionType = "move"
 	ActionSpeak    ActionType = "speak"
 	ActionInteract ActionType = "interact"
+	ActionGreet    ActionType = "greet"
 )
 
 // AgentAction captures an agent's intended action for a tick.
@@ -18,6 +19,7 @@ type AgentAction struct {
 	TargetID string            // optional, used for interactions
 	Location string            // optional, used for move targets
 	Message  string            // optional, used for speak
+	Reason   string            // optional, explains intent (e.g., move reason)
 	ToolName string            // optional, ADK tool identifier
 	ToolArgs map[string]string // optional, ADK tool arguments
 	Metadata map[string]string // optional, free-form annotations
