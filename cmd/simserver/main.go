@@ -15,8 +15,8 @@ func main() {
 	log.Println("Starting Agentic Simulation Environment (HTTP server)...")
 
 	mux := http.NewServeMux()
-	simService := api.NewDefaultSimulationService(simulation.NewEngineWithConfig)
-	handler := api.NewHandler(simService)
+	manager := simulation.NewInMemoryManager(simulation.NewEngineWithConfig)
+	handler := api.NewHandler(manager)
 	handler.Register(mux)
 
 	addr := getAddr()

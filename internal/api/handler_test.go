@@ -2,7 +2,7 @@ package api
 
 import (
 	"bytes"
-	"errors"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,24 +11,28 @@ import (
 	"github.com/jdebrux/agentic-sim/internal/simulation"
 )
 
-type stubSimService struct {
-	lastCfg      simulation.EngineConfig
-	lastDuration time.Duration
-	ticks        int64
-	events       int
-	err          error
+type stubManager struct {
+	startID  string
+	startErr error
+
+	status map[string]simulation.RunStatus
 }
 
-func (s *stubSimService) RunSimulation(r *http.Request, cfg simulation.EngineConfig, duration time.Duration) (int64, int, error) {
-	_ = r
-	s.lastCfg = cfg
-	s.lastDuration = duration
-	return s.ticks, s.events, s.err
+func (s *stubManager) Start(ctx context.Context, cfg simulation.EngineConfig, duration time.Duration) (string, error) {
+	_ = ctx
+	_ = cfg
+	_ = duration
+	return s.startID, s.startErr
+}
+
+func (s *stubManager) Status(id string) (simulation.RunStatus, bool) {
+	rs, ok := s.status[id]
+	return rs, ok
 }
 
 func TestHealth(t *testing.T) {
-	svc := &stubSimService{}
-	h := NewHandler(svc)
+	m := &stubManager{}
+	h := NewHandler(m)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -45,13 +49,13 @@ func TestHealth(t *testing.T) {
 	}
 }
 
-func TestSimulate_Success(t *testing.T) {
-	svc := &stubSimService{ticks: 3, events: 5}
-	h := NewHandler(svc)
+func TestSimulate_StartsRun(t *testing.T) {
+	m := &stubManager{startID: "run-1"}
+	h := NewHandler(m)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	body := []byte(`{"duration_ms":10,"tick_ms":2,"use_simple_runner":true}`)
+	body := []byte(`{"duration_ms":10,"use_simple_runner":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/simulate", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 
@@ -60,50 +64,46 @@ func TestSimulate_Success(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-	if svc.lastDuration != 10*time.Millisecond {
-		t.Fatalf("expected duration 10ms, got %v", svc.lastDuration)
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"id":"run-1"`)) {
+		t.Fatalf("expected run id in response, got %s", rec.Body.String())
 	}
-	if svc.lastCfg.Tick != 2*time.Millisecond {
-		t.Fatalf("expected tick 2ms, got %v", svc.lastCfg.Tick)
+}
+
+func TestSimulateStatus(t *testing.T) {
+	m := &stubManager{
+		status: map[string]simulation.RunStatus{
+			"run-1": {ID: "run-1", State: "completed", Ticks: 3, Events: 5},
+		},
 	}
-	if !svc.lastCfg.UseSimpleRunner {
-		t.Fatalf("expected UseSimpleRunner to be true")
+	h := NewHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/simulate/run-1", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"ticks":3`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"events":5`)) {
-		t.Fatalf("expected ticks/events in response, got %s", rec.Body.String())
+		t.Fatalf("expected ticks/events in status response, got %s", rec.Body.String())
 	}
 }
 
-func TestSimulate_InvalidRequest(t *testing.T) {
-	svc := &stubSimService{}
-	h := NewHandler(svc)
+func TestSimulateStatus_NotFound(t *testing.T) {
+	m := &stubManager{status: map[string]simulation.RunStatus{}}
+	h := NewHandler(m)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	body := []byte(`{"duration_ms":0}`)
-	req := httptest.NewRequest(http.MethodPost, "/simulate", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodGet, "/simulate/missing", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
-	}
-}
-
-func TestSimulate_ServiceError(t *testing.T) {
-	svc := &stubSimService{err: errors.New("boom")}
-	h := NewHandler(svc)
-	mux := http.NewServeMux()
-	h.Register(mux)
-
-	body := []byte(`{"duration_ms":5}`)
-	req := httptest.NewRequest(http.MethodPost, "/simulate", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
 	}
 }

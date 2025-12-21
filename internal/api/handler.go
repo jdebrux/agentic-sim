@@ -8,24 +8,20 @@ import (
 	"github.com/jdebrux/agentic-sim/internal/simulation"
 )
 
-// SimulationService abstracts running a simulation for a given duration.
-type SimulationService interface {
-	RunSimulation(r *http.Request, cfg simulation.EngineConfig, duration time.Duration) (ticks int64, events int, err error)
-}
-
 // Handler wires HTTP endpoints to services.
 type Handler struct {
-	Sim SimulationService
+	Manager simulation.Manager
 }
 
-func NewHandler(sim SimulationService) *Handler {
-	return &Handler{Sim: sim}
+func NewHandler(m simulation.Manager) *Handler {
+	return &Handler{Manager: m}
 }
 
 // Register attaches endpoints to a mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/health", h.health)
 	mux.HandleFunc("/simulate", h.simulate)
+	mux.HandleFunc("/simulate/", h.simulateStatus)
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -39,9 +35,8 @@ type simulateRequest struct {
 }
 
 type simulateResponse struct {
+	ID     string `json:"id"`
 	Status string `json:"status"`
-	Ticks  int64  `json:"ticks"`
-	Events int    `json:"events"`
 }
 
 func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
@@ -68,17 +63,52 @@ func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
 		cfg.Tick = time.Duration(req.TickMs) * time.Millisecond
 	}
 
-	ticks, events, err := h.Sim.RunSimulation(r, cfg, time.Duration(req.DurationMs)*time.Millisecond)
+	runID, err := h.Manager.Start(r.Context(), cfg, time.Duration(req.DurationMs)*time.Millisecond)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	writeJSON(w, http.StatusOK, simulateResponse{
-		Status: "completed",
-		Ticks:  ticks,
-		Events: events,
+		ID:     runID,
+		Status: "running",
 	})
+}
+
+type simulateStatusResponse struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Ticks  int64  `json:"ticks"`
+	Events int64  `json:"events"`
+	Error  string `json:"error,omitempty"`
+}
+
+func (h *Handler) simulateStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := r.URL.Path[len("/simulate/"):]
+	if id == "" {
+		http.Error(w, "missing run id", http.StatusBadRequest)
+		return
+	}
+
+	status, ok := h.Manager.Status(id)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	resp := simulateStatusResponse{
+		ID:     status.ID,
+		Status: status.State,
+		Ticks:  status.Ticks,
+		Events: status.Events,
+	}
+	if status.Error != "" {
+		resp.Error = status.Error
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
