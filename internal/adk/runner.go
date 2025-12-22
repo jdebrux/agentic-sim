@@ -47,10 +47,23 @@ type SimpleRunner struct{}
 func (s *SimpleRunner) DecideAction(ctx context.Context, req ReasoningRequest) (ReasoningResponse, error) {
 	_ = ctx
 
+	// Rest if energy is low.
+	if req.View.Self.Energy < 20 {
+		return ReasoningResponse{
+			Action: model.AgentAction{
+				ActorID:  req.AgentID,
+				Type:     model.ActionRest,
+				Reason:   "low energy",
+				ToolName: "rest",
+			},
+			Notes: map[string]string{"policy": "rest_low_energy"},
+		}, nil
+	}
+
 	// Prefer trade when co-located at market.
 	if req.View.AtMarket {
 		for _, other := range req.View.OtherAgents {
-			if other.Location == req.View.Self.Location {
+			if other.Location == req.View.Self.Location && req.View.Self.Credits > 0 {
 				return ReasoningResponse{
 					Action: model.AgentAction{
 						ActorID:  req.AgentID,

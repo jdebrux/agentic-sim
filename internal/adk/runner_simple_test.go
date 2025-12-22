@@ -11,7 +11,7 @@ import (
 func TestSimpleRunnerDecideAction_GreetWhenCoLocated(t *testing.T) {
 	runner := &SimpleRunner{}
 	view := world.WorldView{
-		Self: world.AgentState{ID: "a1", Name: "A", Location: "loc_default"},
+		Self: world.AgentState{ID: "a1", Name: "A", Location: "loc_default", Energy: 100},
 		OtherAgents: []world.AgentState{
 			{ID: "a2", Name: "B", Location: "loc_default"},
 		},
@@ -33,7 +33,7 @@ func TestSimpleRunnerDecideAction_GreetWhenCoLocated(t *testing.T) {
 func TestSimpleRunnerDecideAction_MoveToMarket(t *testing.T) {
 	runner := &SimpleRunner{}
 	view := world.WorldView{
-		Self:        world.AgentState{ID: "a1", Name: "A", Location: "loc_default"},
+		Self:        world.AgentState{ID: "a1", Name: "A", Location: "loc_default", Energy: 100, Credits: 1},
 		OtherAgents: []world.AgentState{},
 		Locations: []world.Location{
 			{ID: "loc_default"},
@@ -56,7 +56,7 @@ func TestSimpleRunnerDecideAction_MoveToMarket(t *testing.T) {
 func TestSimpleRunnerDecideAction_SpeakFallback(t *testing.T) {
 	runner := &SimpleRunner{}
 	view := world.WorldView{
-		Self:        world.AgentState{ID: "a1", Name: "A", Location: "loc_default"},
+		Self:        world.AgentState{ID: "a1", Name: "A", Location: "loc_default", Energy: 100, Credits: 0},
 		OtherAgents: []world.AgentState{},
 		Locations:   []world.Location{{ID: "loc_default"}},
 	}
@@ -76,7 +76,7 @@ func TestSimpleRunnerDecideAction_SpeakFallback(t *testing.T) {
 func TestSimpleRunnerDecideAction_TradeAtMarket(t *testing.T) {
 	runner := &SimpleRunner{}
 	view := world.WorldView{
-		Self: world.AgentState{ID: "a1", Name: "A", Location: "loc_market"},
+		Self: world.AgentState{ID: "a1", Name: "A", Location: "loc_market", Credits: 2, Energy: 100},
 		OtherAgents: []world.AgentState{
 			{ID: "a2", Name: "B", Location: "loc_market"},
 		},
@@ -97,5 +97,27 @@ func TestSimpleRunnerDecideAction_TradeAtMarket(t *testing.T) {
 	}
 	if resp.Action.Type != model.ActionTrade || resp.Action.TargetID != "a2" {
 		t.Fatalf("expected trade action toward a2, got %+v", resp.Action)
+	}
+}
+
+func TestSimpleRunnerDecideAction_RestWhenLowEnergy(t *testing.T) {
+	runner := &SimpleRunner{}
+	view := world.WorldView{
+		Self:        world.AgentState{ID: "a1", Name: "A", Location: "loc_default", Energy: 10, Credits: 1},
+		OtherAgents: []world.AgentState{},
+		Locations:   []world.Location{{ID: "loc_default"}},
+	}
+
+	resp, err := runner.DecideAction(context.Background(), ReasoningRequest{
+		AgentID:   "a1",
+		AgentName: "A",
+		View:      view,
+	})
+
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if resp.Action.Type != model.ActionRest {
+		t.Fatalf("expected rest action for low energy, got %+v", resp.Action)
 	}
 }
