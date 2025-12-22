@@ -72,3 +72,30 @@ func TestSimpleRunnerDecideAction_SpeakFallback(t *testing.T) {
 		t.Fatalf("expected speak fallback, got %+v", resp.Action)
 	}
 }
+
+func TestSimpleRunnerDecideAction_TradeAtMarket(t *testing.T) {
+	runner := &SimpleRunner{}
+	view := world.WorldView{
+		Self: world.AgentState{ID: "a1", Name: "A", Location: "loc_market"},
+		OtherAgents: []world.AgentState{
+			{ID: "a2", Name: "B", Location: "loc_market"},
+		},
+		Locations: []world.Location{
+			{ID: "loc_market"},
+		},
+		AtMarket: true,
+	}
+
+	resp, err := runner.DecideAction(context.Background(), ReasoningRequest{
+		AgentID:   "a1",
+		AgentName: "A",
+		View:      view,
+	})
+
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if resp.Action.Type != model.ActionTrade || resp.Action.TargetID != "a2" {
+		t.Fatalf("expected trade action toward a2, got %+v", resp.Action)
+	}
+}

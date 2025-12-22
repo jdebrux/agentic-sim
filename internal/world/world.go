@@ -12,6 +12,8 @@ type AgentState struct {
 	Location string
 	Traits   Traits
 	Goals    []string
+	Mood     string
+	Energy   int
 }
 
 // Traits captures simple personality traits for agents.

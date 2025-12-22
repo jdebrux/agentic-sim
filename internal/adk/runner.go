@@ -47,6 +47,25 @@ type SimpleRunner struct{}
 func (s *SimpleRunner) DecideAction(ctx context.Context, req ReasoningRequest) (ReasoningResponse, error) {
 	_ = ctx
 
+	// Prefer trade when co-located at market.
+	if req.View.AtMarket {
+		for _, other := range req.View.OtherAgents {
+			if other.Location == req.View.Self.Location {
+				return ReasoningResponse{
+					Action: model.AgentAction{
+						ActorID:  req.AgentID,
+						TargetID: other.ID,
+						Type:     model.ActionTrade,
+						Reason:   "co-located at market",
+						ToolName: "trade",
+						ToolArgs: map[string]string{"target": other.ID},
+					},
+					Notes: map[string]string{"policy": "trade_at_market"},
+				}, nil
+			}
+		}
+	}
+
 	// Prefer greeting a co-located agent if any.
 	for _, other := range req.View.OtherAgents {
 		if other.Location == req.View.Self.Location {

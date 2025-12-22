@@ -160,6 +160,28 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 		if actor.Location != target.Location {
 			err = fmt.Errorf("interaction requires co-location at %s", actor.Location)
 		}
+	case model.ActionTrade:
+		actor, ok := e.World.GetAgent(action.ActorID)
+		if !ok {
+			err = fmt.Errorf("actor %s not found for trade", action.ActorID)
+			break
+		}
+		if action.TargetID == "" {
+			err = fmt.Errorf("trade requires target")
+			break
+		}
+		target, ok := e.World.GetAgent(action.TargetID)
+		if !ok {
+			err = fmt.Errorf("target %s not found for trade", action.TargetID)
+			break
+		}
+		if actor.Location != target.Location {
+			err = fmt.Errorf("trade requires co-location at %s", actor.Location)
+			break
+		}
+		if actor.Location != "loc_market" {
+			err = fmt.Errorf("trade allowed only in market, current %s", actor.Location)
+		}
 	case model.ActionSpeak, model.ActionIdle:
 		// No world mutation required.
 	default:

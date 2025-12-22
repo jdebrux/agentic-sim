@@ -9,6 +9,7 @@ type WorldView struct {
 	OtherAgents  []AgentState
 	Locations    []Location
 	RecentEvents []Event
+	AtMarket     bool
 }
 
 // NewWorldView builds a read-only view for the given agent.
@@ -44,5 +45,6 @@ func NewWorldView(w *World, agentID string, recentEventLimit int) WorldView {
 		OtherAgents:  others,
 		Locations:    locations,
 		RecentEvents: eventsCopy,
+		AtMarket:     self.Location == "loc_market",
 	}
 }
