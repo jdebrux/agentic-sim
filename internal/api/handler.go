@@ -22,6 +22,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/health", h.health)
 	mux.HandleFunc("/simulate", h.simulate)
 	mux.HandleFunc("/simulate/", h.simulateStatus)
+	mux.HandleFunc("/metrics", h.metrics)
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +110,15 @@ func (h *Handler) simulateStatus(w http.ResponseWriter, r *http.Request) {
 		resp.Error = status.Error
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	m := h.Manager.Metrics()
+	writeJSON(w, http.StatusOK, m)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

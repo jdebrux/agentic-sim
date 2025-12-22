@@ -15,7 +15,8 @@ type stubManager struct {
 	startID  string
 	startErr error
 
-	status map[string]simulation.RunStatus
+	status  map[string]simulation.RunStatus
+	metrics simulation.ManagerMetrics
 }
 
 func (s *stubManager) Start(ctx context.Context, cfg simulation.EngineConfig, duration time.Duration) (string, error) {
@@ -28,6 +29,10 @@ func (s *stubManager) Start(ctx context.Context, cfg simulation.EngineConfig, du
 func (s *stubManager) Status(id string) (simulation.RunStatus, bool) {
 	rs, ok := s.status[id]
 	return rs, ok
+}
+
+func (s *stubManager) Metrics() simulation.ManagerMetrics {
+	return s.metrics
 }
 
 func TestHealth(t *testing.T) {
@@ -105,5 +110,33 @@ func TestSimulateStatus_NotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestMetrics(t *testing.T) {
+	m := &stubManager{
+		metrics: simulation.ManagerMetrics{
+			TotalRuns:   2,
+			Running:     1,
+			Completed:   1,
+			Errored:     0,
+			TotalTicks:  10,
+			TotalEvents: 20,
+		},
+	}
+	h := NewHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"total_runs":2`)) {
+		t.Fatalf("expected metrics in response, got %s", rec.Body.String())
 	}
 }

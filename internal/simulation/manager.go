@@ -10,6 +10,7 @@ import (
 type Manager interface {
 	Start(ctx context.Context, cfg EngineConfig, duration time.Duration) (string, error)
 	Status(id string) (RunStatus, bool)
+	Metrics() ManagerMetrics
 }
 
 // RunStatus describes the state of a simulation run.
@@ -31,6 +32,7 @@ type InMemoryManager struct {
 	newEngine func(cfg EngineConfig) *Engine
 	runs      map[string]*runRecord
 	mu        sync.RWMutex
+	metrics   ManagerMetrics
 }
 
 func NewInMemoryManager(factory func(cfg EngineConfig) *Engine) *InMemoryManager {
@@ -51,11 +53,20 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 
 	m.mu.Lock()
 	m.runs[id] = rec
+	m.metrics.TotalRuns++
+	m.metrics.Running++
 	m.mu.Unlock()
 
 	go func() {
 		engine := m.newEngine(cfg)
 		engine.Run(context.Background(), duration)
+
+		m.mu.Lock()
+		m.metrics.Running--
+		m.metrics.Completed++
+		m.metrics.TotalTicks += engine.Metrics.Ticks
+		m.metrics.TotalEvents += engine.Metrics.Events
+		m.mu.Unlock()
 
 		rec.mu.Lock()
 		rec.status.Ticks = engine.World.Timestep
@@ -77,6 +88,22 @@ func (m *InMemoryManager) Status(id string) (RunStatus, bool) {
 	rec.mu.RLock()
 	defer rec.mu.RUnlock()
 	return rec.status, true
+}
+
+// ManagerMetrics is a snapshot of aggregate run metrics.
+type ManagerMetrics struct {
+	TotalRuns   int64 `json:"total_runs"`
+	Running     int64 `json:"running_runs"`
+	Completed   int64 `json:"completed_runs"`
+	Errored     int64 `json:"errored_runs"`
+	TotalTicks  int64 `json:"ticks_total"`
+	TotalEvents int64 `json:"events_total"`
+}
+
+func (m *InMemoryManager) Metrics() ManagerMetrics {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.metrics
 }
 
 func (m *InMemoryManager) safeEventsCount(e *Engine) int64 {
