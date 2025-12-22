@@ -144,6 +144,7 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 	switch action.Type {
 	case model.ActionMove:
 		err = e.World.MoveAgent(action.ActorID, action.Location)
+		e.adjustEnergy(action.ActorID, -5)
 	case model.ActionInteract, model.ActionGreet:
 		actor, ok := e.World.GetAgent(action.ActorID)
 		if !ok {
@@ -162,6 +163,7 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 		if actor.Location != target.Location {
 			err = fmt.Errorf("interaction requires co-location at %s", actor.Location)
 		}
+		e.adjustEnergy(action.ActorID, -1)
 	case model.ActionTrade:
 		actor, ok := e.World.GetAgent(action.ActorID)
 		if !ok {
@@ -183,9 +185,14 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 		}
 		if actor.Location != "loc_market" {
 			err = fmt.Errorf("trade allowed only in market, current %s", actor.Location)
+			break
 		}
+		e.adjustEnergy(action.ActorID, -3)
 	case model.ActionSpeak, model.ActionIdle:
 		// No world mutation required.
+		e.adjustEnergy(action.ActorID, -1)
+	case model.ActionRest:
+		e.adjustEnergy(action.ActorID, +10)
 	default:
 		err = fmt.Errorf("unsupported action type: %s", action.Type)
 	}
@@ -199,4 +206,18 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 
 	e.World.AddEvent(event)
 	e.Metrics.Events++
+}
+
+func (e *Engine) adjustEnergy(agentID string, delta int) {
+	agent, ok := e.World.GetAgent(agentID)
+	if !ok {
+		return
+	}
+	agent.Energy += delta
+	if agent.Energy > 100 {
+		agent.Energy = 100
+	}
+	if agent.Energy < 0 {
+		agent.Energy = 0
+	}
 }

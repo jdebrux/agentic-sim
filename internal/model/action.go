@@ -10,6 +10,7 @@ const (
 	ActionInteract ActionType = "interact"
 	ActionGreet    ActionType = "greet"
 	ActionTrade    ActionType = "trade"
+	ActionRest     ActionType = "rest"
 )
 
 // AgentAction captures an agent's intended action for a tick.
