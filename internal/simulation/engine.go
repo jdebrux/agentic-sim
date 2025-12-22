@@ -55,7 +55,9 @@ func NewEngineWithConfig(cfg EngineConfig) *Engine {
 				Friendliness: 5,
 				Curiosity:    5,
 			},
-			Goals: []string{"explore", "socialize"},
+			Goals:   []string{"explore", "socialize"},
+			Energy:  100,
+			Credits: 10,
 		}
 	}
 
