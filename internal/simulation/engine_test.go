@@ -152,8 +152,8 @@ func TestEngineHandleAction(t *testing.T) {
 
 	t.Run("trade succeeds only in market with co-located target", func(t *testing.T) {
 		w := world.NewWorld()
-		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_market"}
-		w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_market"}
+		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_market", Credits: 5}
+		w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_market", Credits: 2}
 		engine := &Engine{World: w}
 		action := model.AgentAction{
 			ActorID:  "agent-1",
@@ -169,12 +169,15 @@ func TestEngineHandleAction(t *testing.T) {
 		if errVal, ok := w.Events[0].Payload["error"]; ok && errVal != nil {
 			t.Fatalf("expected no error for valid trade, got %v", errVal)
 		}
+		if w.Agents["agent-1"].Credits != 4 || w.Agents["agent-2"].Credits != 3 {
+			t.Fatalf("expected credits transfer 1: got %d and %d", w.Agents["agent-1"].Credits, w.Agents["agent-2"].Credits)
+		}
 	})
 
 	t.Run("trade fails outside market", func(t *testing.T) {
 		w := world.NewWorld()
-		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default"}
-		w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_default"}
+		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default", Credits: 5}
+		w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_default", Credits: 2}
 		engine := &Engine{World: w}
 		action := model.AgentAction{
 			ActorID:  "agent-1",
@@ -190,6 +193,34 @@ func TestEngineHandleAction(t *testing.T) {
 		errVal, ok := w.Events[0].Payload["error"]
 		if !ok || errVal == nil || errVal == "" {
 			t.Fatalf("expected trade error outside market, got %v", errVal)
+		}
+		if w.Agents["agent-1"].Credits != 5 || w.Agents["agent-2"].Credits != 2 {
+			t.Fatalf("expected no credit change on failed trade, got %d and %d", w.Agents["agent-1"].Credits, w.Agents["agent-2"].Credits)
+		}
+	})
+
+	t.Run("trade fails with insufficient credits", func(t *testing.T) {
+		w := world.NewWorld()
+		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_market", Credits: 0}
+		w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_market", Credits: 5}
+		engine := &Engine{World: w}
+		action := model.AgentAction{
+			ActorID:  "agent-1",
+			TargetID: "agent-2",
+			Type:     model.ActionTrade,
+		}
+
+		engine.handleAction(context.Background(), action)
+
+		if len(w.Events) != 1 {
+			t.Fatalf("expected 1 event, got %d", len(w.Events))
+		}
+		errVal, ok := w.Events[0].Payload["error"]
+		if !ok || errVal == nil || errVal == "" {
+			t.Fatalf("expected trade error for insufficient credits, got %v", errVal)
+		}
+		if w.Agents["agent-1"].Credits != 0 || w.Agents["agent-2"].Credits != 5 {
+			t.Fatalf("expected no credit change on failed trade, got %d and %d", w.Agents["agent-1"].Credits, w.Agents["agent-2"].Credits)
 		}
 	})
 }

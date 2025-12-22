@@ -187,6 +187,12 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 			err = fmt.Errorf("trade allowed only in market, current %s", actor.Location)
 			break
 		}
+		err = e.transferCredits(actor, target, 1)
+		if err == nil {
+			event.Payload["credits_transferred"] = 1
+			event.Payload["actor_credits"] = actor.Credits
+			event.Payload["target_credits"] = target.Credits
+		}
 		e.adjustEnergy(action.ActorID, -3)
 	case model.ActionSpeak, model.ActionIdle:
 		// No world mutation required.
@@ -220,4 +226,16 @@ func (e *Engine) adjustEnergy(agentID string, delta int) {
 	if agent.Energy < 0 {
 		agent.Energy = 0
 	}
+}
+
+func (e *Engine) transferCredits(actor, target *world.AgentState, amount int) error {
+	if amount <= 0 {
+		return fmt.Errorf("trade amount must be positive")
+	}
+	if actor.Credits < amount {
+		return fmt.Errorf("insufficient credits for trade: have %d need %d", actor.Credits, amount)
+	}
+	actor.Credits -= amount
+	target.Credits += amount
+	return nil
 }
