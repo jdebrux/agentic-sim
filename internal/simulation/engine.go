@@ -144,7 +144,7 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 	switch action.Type {
 	case model.ActionMove:
 		err = e.World.MoveAgent(action.ActorID, action.Location)
-		e.adjustEnergy(action.ActorID, -5)
+		e.applyEnergyDelta(&event, action.ActorID, -5)
 	case model.ActionInteract, model.ActionGreet:
 		actor, ok := e.World.GetAgent(action.ActorID)
 		if !ok {
@@ -163,7 +163,7 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 		if actor.Location != target.Location {
 			err = fmt.Errorf("interaction requires co-location at %s", actor.Location)
 		}
-		e.adjustEnergy(action.ActorID, -1)
+		e.applyEnergyDelta(&event, action.ActorID, -1)
 	case model.ActionTrade:
 		actor, ok := e.World.GetAgent(action.ActorID)
 		if !ok {
@@ -193,12 +193,12 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 			event.Payload["actor_credits"] = actor.Credits
 			event.Payload["target_credits"] = target.Credits
 		}
-		e.adjustEnergy(action.ActorID, -3)
+		e.applyEnergyDelta(&event, action.ActorID, -3)
 	case model.ActionSpeak, model.ActionIdle:
 		// No world mutation required.
-		e.adjustEnergy(action.ActorID, -1)
+		e.applyEnergyDelta(&event, action.ActorID, -1)
 	case model.ActionRest:
-		e.adjustEnergy(action.ActorID, +10)
+		e.applyEnergyDelta(&event, action.ActorID, +10)
 	default:
 		err = fmt.Errorf("unsupported action type: %s", action.Type)
 	}
@@ -215,8 +215,8 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 }
 
 func (e *Engine) adjustEnergy(agentID string, delta int) {
-	agent, ok := e.World.GetAgent(agentID)
-	if !ok {
+	agent, _ := e.World.GetAgent(agentID)
+	if agent == nil {
 		return
 	}
 	agent.Energy += delta
@@ -226,6 +226,23 @@ func (e *Engine) adjustEnergy(agentID string, delta int) {
 	if agent.Energy < 0 {
 		agent.Energy = 0
 	}
+}
+
+func (e *Engine) applyEnergyDelta(event *world.Event, agentID string, delta int) {
+	before := e.getEnergy(agentID)
+	e.adjustEnergy(agentID, delta)
+	after := e.getEnergy(agentID)
+	event.Payload["energy_delta"] = delta
+	event.Payload["energy_before"] = before
+	event.Payload["energy_after"] = after
+}
+
+func (e *Engine) getEnergy(agentID string) int {
+	agent, _ := e.World.GetAgent(agentID)
+	if agent == nil {
+		return 0
+	}
+	return agent.Energy
 }
 
 func (e *Engine) transferCredits(actor, target *world.AgentState, amount int) error {
