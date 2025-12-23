@@ -74,8 +74,7 @@ func newAgentWithConfig(id, name string, cfg EngineConfig) agents.Agent {
 	case "simple":
 		return agents.NewBasicAgentWithRunner(id, name, &adk.SimpleRunner{})
 	case "rule":
-		// Temporary: use SimpleRunner until RuleRunner is added.
-		return agents.NewBasicAgentWithRunner(id, name, &adk.SimpleRunner{})
+		return agents.NewBasicAgentWithRunner(id, name, adk.NewRuleRunner())
 	default:
 		// scripted
 		return agents.NewBasicAgent(id, name)
