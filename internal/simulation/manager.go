@@ -20,6 +20,7 @@ type RunStatus struct {
 	Ticks  int64
 	Events int64
 	Error  string
+	Mode   string
 }
 
 type runRecord struct {
@@ -48,6 +49,7 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 		status: RunStatus{
 			ID:    id,
 			State: "running",
+			Mode:  cfg.RunnerMode,
 		},
 	}
 
@@ -55,6 +57,7 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 	m.runs[id] = rec
 	m.metrics.TotalRuns++
 	m.metrics.Running++
+	m.metrics.LastMode = cfg.RunnerMode
 	m.mu.Unlock()
 
 	go func() {
@@ -92,12 +95,13 @@ func (m *InMemoryManager) Status(id string) (RunStatus, bool) {
 
 // ManagerMetrics is a snapshot of aggregate run metrics.
 type ManagerMetrics struct {
-	TotalRuns   int64 `json:"total_runs"`
-	Running     int64 `json:"running_runs"`
-	Completed   int64 `json:"completed_runs"`
-	Errored     int64 `json:"errored_runs"`
-	TotalTicks  int64 `json:"ticks_total"`
-	TotalEvents int64 `json:"events_total"`
+	TotalRuns   int64  `json:"total_runs"`
+	Running     int64  `json:"running_runs"`
+	Completed   int64  `json:"completed_runs"`
+	Errored     int64  `json:"errored_runs"`
+	TotalTicks  int64  `json:"ticks_total"`
+	TotalEvents int64  `json:"events_total"`
+	LastMode    string `json:"runner_mode_last,omitempty"`
 }
 
 func (m *InMemoryManager) Metrics() ManagerMetrics {

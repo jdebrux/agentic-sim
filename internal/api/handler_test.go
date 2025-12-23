@@ -21,8 +21,8 @@ type stubManager struct {
 
 func (s *stubManager) Start(ctx context.Context, cfg simulation.EngineConfig, duration time.Duration) (string, error) {
 	_ = ctx
-	_ = cfg
 	_ = duration
+	s.metrics.LastMode = cfg.RunnerMode
 	return s.startID, s.startErr
 }
 
@@ -60,7 +60,7 @@ func TestSimulate_StartsRun(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	body := []byte(`{"duration_ms":10,"use_simple_runner":true}`)
+	body := []byte(`{"duration_ms":10,"runner_mode":"rule"}`)
 	req := httptest.NewRequest(http.MethodPost, "/simulate", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 
@@ -72,12 +72,15 @@ func TestSimulate_StartsRun(t *testing.T) {
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"id":"run-1"`)) {
 		t.Fatalf("expected run id in response, got %s", rec.Body.String())
 	}
+	if m.metrics.LastMode == "" {
+		t.Fatalf("expected runner mode recorded on start")
+	}
 }
 
 func TestSimulateStatus(t *testing.T) {
 	m := &stubManager{
 		status: map[string]simulation.RunStatus{
-			"run-1": {ID: "run-1", State: "completed", Ticks: 3, Events: 5},
+			"run-1": {ID: "run-1", State: "completed", Ticks: 3, Events: 5, Mode: "rule"},
 		},
 	}
 	h := NewHandler(m)
@@ -94,6 +97,9 @@ func TestSimulateStatus(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"ticks":3`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"events":5`)) {
 		t.Fatalf("expected ticks/events in status response, got %s", rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"runner_mode":"rule"`)) {
+		t.Fatalf("expected runner_mode in status response, got %s", rec.Body.String())
 	}
 }
 
@@ -122,6 +128,7 @@ func TestMetrics(t *testing.T) {
 			Errored:     0,
 			TotalTicks:  10,
 			TotalEvents: 20,
+			LastMode:    "rule",
 		},
 	}
 	h := NewHandler(m)

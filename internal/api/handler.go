@@ -30,14 +30,16 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 }
 
 type simulateRequest struct {
-	DurationMs      int64 `json:"duration_ms"`
-	TickMs          int64 `json:"tick_ms"`
-	UseSimpleRunner bool  `json:"use_simple_runner"`
+	DurationMs      int64  `json:"duration_ms"`
+	TickMs          int64  `json:"tick_ms"`
+	UseSimpleRunner bool   `json:"use_simple_runner"`
+	RunnerMode      string `json:"runner_mode,omitempty"`
 }
 
 type simulateResponse struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
+	ID         string `json:"id"`
+	Status     string `json:"status"`
+	RunnerMode string `json:"runner_mode,omitempty"`
 }
 
 func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +61,7 @@ func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
 
 	cfg := simulation.EngineConfig{
 		UseSimpleRunner: req.UseSimpleRunner,
+		RunnerMode:      req.RunnerMode,
 	}
 	if req.TickMs > 0 {
 		cfg.Tick = time.Duration(req.TickMs) * time.Millisecond
@@ -71,17 +74,19 @@ func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, simulateResponse{
-		ID:     runID,
-		Status: "running",
+		ID:         runID,
+		Status:     "running",
+		RunnerMode: cfg.RunnerMode,
 	})
 }
 
 type simulateStatusResponse struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-	Ticks  int64  `json:"ticks"`
-	Events int64  `json:"events"`
-	Error  string `json:"error,omitempty"`
+	ID         string `json:"id"`
+	Status     string `json:"status"`
+	Ticks      int64  `json:"ticks"`
+	Events     int64  `json:"events"`
+	RunnerMode string `json:"runner_mode,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 func (h *Handler) simulateStatus(w http.ResponseWriter, r *http.Request) {
@@ -101,10 +106,11 @@ func (h *Handler) simulateStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := simulateStatusResponse{
-		ID:     status.ID,
-		Status: status.State,
-		Ticks:  status.Ticks,
-		Events: status.Events,
+		ID:         status.ID,
+		Status:     status.State,
+		Ticks:      status.Ticks,
+		Events:     status.Events,
+		RunnerMode: status.Mode,
 	}
 	if status.Error != "" {
 		resp.Error = status.Error
