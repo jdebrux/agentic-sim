@@ -77,6 +77,35 @@ func TestSimulate_StartsRun(t *testing.T) {
 	}
 }
 
+func TestSimulate_ValidationErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{"missing duration", `{"duration_ms":0}`, http.StatusBadRequest},
+		{"negative tick", `{"duration_ms":10,"tick_ms":-1}`, http.StatusBadRequest},
+		{"tick too large", `{"duration_ms":10,"tick_ms":10}`, http.StatusBadRequest},
+		{"invalid runner mode", `{"duration_ms":10,"runner_mode":"invalid"}`, http.StatusBadRequest},
+		{"malformed json", `{"duration_ms":10,`, http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &stubManager{}
+			h := NewHandler(m)
+			mux := http.NewServeMux()
+			h.Register(mux)
+
+			req := httptest.NewRequest(http.MethodPost, "/simulate", bytes.NewBufferString(tt.body))
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("expected %d, got %d", tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
+
 func TestSimulateStatus(t *testing.T) {
 	m := &stubManager{
 		status: map[string]simulation.RunStatus{
@@ -119,6 +148,22 @@ func TestSimulateStatus_NotFound(t *testing.T) {
 	}
 }
 
+func TestSimulateStatus_MethodNotAllowed(t *testing.T) {
+	m := &stubManager{status: map[string]simulation.RunStatus{}}
+	h := NewHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/simulate/run-1", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rec.Code)
+	}
+}
+
 func TestMetrics(t *testing.T) {
 	m := &stubManager{
 		metrics: simulation.ManagerMetrics{
@@ -145,5 +190,21 @@ func TestMetrics(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"total_runs":2`)) {
 		t.Fatalf("expected metrics in response, got %s", rec.Body.String())
+	}
+}
+
+func TestMetrics_MethodNotAllowed(t *testing.T) {
+	m := &stubManager{}
+	h := NewHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/metrics", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rec.Code)
 	}
 }

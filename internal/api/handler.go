@@ -58,6 +58,18 @@ func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "duration_ms must be > 0", http.StatusBadRequest)
 		return
 	}
+	if req.TickMs < 0 {
+		http.Error(w, "tick_ms must be >= 0", http.StatusBadRequest)
+		return
+	}
+	if req.TickMs > 0 && req.TickMs >= req.DurationMs {
+		http.Error(w, "tick_ms must be less than duration_ms", http.StatusBadRequest)
+		return
+	}
+	if req.RunnerMode != "" && !validRunnerMode(req.RunnerMode) {
+		http.Error(w, "invalid runner_mode", http.StatusBadRequest)
+		return
+	}
 
 	cfg := simulation.EngineConfig{
 		UseSimpleRunner: req.UseSimpleRunner,
@@ -125,6 +137,15 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 	m := h.Manager.Metrics()
 	writeJSON(w, http.StatusOK, m)
+}
+
+func validRunnerMode(mode string) bool {
+	switch mode {
+	case "scripted", "simple", "rule":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
