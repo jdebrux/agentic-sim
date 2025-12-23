@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/jdebrux/agentic-sim/internal/storage"
 )
 
 // Manager tracks simulation runs by ID.
@@ -34,13 +36,29 @@ type InMemoryManager struct {
 	runs      map[string]*runRecord
 	mu        sync.RWMutex
 	metrics   ManagerMetrics
+	store     storage.Store
 }
 
-func NewInMemoryManager(factory func(cfg EngineConfig) *Engine) *InMemoryManager {
-	return &InMemoryManager{
+// ManagerOption configures the manager.
+type ManagerOption func(m *InMemoryManager)
+
+// WithStore sets a persistence store to save runs.
+func WithStore(store storage.Store) ManagerOption {
+	return func(m *InMemoryManager) {
+		m.store = store
+	}
+}
+
+func NewInMemoryManager(factory func(cfg EngineConfig) *Engine, opts ...ManagerOption) *InMemoryManager {
+	m := &InMemoryManager{
 		newEngine: factory,
 		runs:      make(map[string]*runRecord),
+		store:     nil,
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration time.Duration) (string, error) {
@@ -76,6 +94,10 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 		rec.status.Events = m.safeEventsCount(engine)
 		rec.status.State = "completed"
 		rec.mu.Unlock()
+
+		if m.store != nil {
+			_ = m.store.SaveRun(context.Background(), id, engine.World, engine.World.Events)
+		}
 	}()
 
 	return id, nil
