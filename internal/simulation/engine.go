@@ -28,7 +28,8 @@ type Metrics struct {
 
 // EngineConfig toggles engine behavior.
 type EngineConfig struct {
-	UseSimpleRunner bool
+	UseSimpleRunner bool   // deprecated in favor of RunnerMode
+	RunnerMode      string // scripted|simple|rule
 	Tick            time.Duration
 }
 
@@ -69,10 +70,16 @@ func NewEngineWithConfig(cfg EngineConfig) *Engine {
 }
 
 func newAgentWithConfig(id, name string, cfg EngineConfig) agents.Agent {
-	if cfg.UseSimpleRunner {
+	switch cfg.RunnerMode {
+	case "simple":
 		return agents.NewBasicAgentWithRunner(id, name, &adk.SimpleRunner{})
+	case "rule":
+		// Temporary: use SimpleRunner until RuleRunner is added.
+		return agents.NewBasicAgentWithRunner(id, name, &adk.SimpleRunner{})
+	default:
+		// scripted
+		return agents.NewBasicAgent(id, name)
 	}
-	return agents.NewBasicAgent(id, name)
 }
 
 func tickOrDefault(t time.Duration, def time.Duration) time.Duration {

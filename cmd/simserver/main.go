@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/jdebrux/agentic-sim/internal/api"
 	"github.com/jdebrux/agentic-sim/internal/simulation"
@@ -15,7 +16,16 @@ func main() {
 	log.Println("Starting Agentic Simulation Environment (HTTP server)...")
 
 	mux := http.NewServeMux()
-	manager := simulation.NewInMemoryManager(simulation.NewEngineWithConfig)
+	manager := simulation.NewInMemoryManager(func(cfg simulation.EngineConfig) *simulation.Engine {
+		if cfg.RunnerMode == "" {
+			cfg.RunnerMode = defaultRunnerMode()
+		}
+		// Backward compatibility: honor UseSimpleRunner if set and mode not set.
+		if cfg.UseSimpleRunner && cfg.RunnerMode == "" {
+			cfg.RunnerMode = "simple"
+		}
+		return simulation.NewEngineWithConfig(cfg)
+	})
 	handler := api.NewHandler(manager)
 	handler.Register(mux)
 
@@ -23,6 +33,16 @@ func main() {
 	log.Printf("Listening on %s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
+	}
+}
+
+func defaultRunnerMode() string {
+	mode := strings.ToLower(os.Getenv("RUNNER_MODE"))
+	switch mode {
+	case "scripted", "simple", "rule":
+		return mode
+	default:
+		return "simple"
 	}
 }
 
