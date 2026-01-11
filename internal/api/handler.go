@@ -10,11 +10,17 @@ import (
 
 // Handler wires HTTP endpoints to services.
 type Handler struct {
-	Manager simulation.Manager
+	Manager           simulation.Manager
+	DefaultTick       time.Duration
+	DefaultRunnerMode string
 }
 
-func NewHandler(m simulation.Manager) *Handler {
-	return &Handler{Manager: m}
+func NewHandler(m simulation.Manager, defaultTick time.Duration, defaultRunnerMode string) *Handler {
+	return &Handler{
+		Manager:           m,
+		DefaultTick:       defaultTick,
+		DefaultRunnerMode: defaultRunnerMode,
+	}
 }
 
 // Register attaches endpoints to a mux.
@@ -75,8 +81,12 @@ func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
 		UseSimpleRunner: req.UseSimpleRunner,
 		RunnerMode:      req.RunnerMode,
 	}
+	cfg.Tick = h.DefaultTick
 	if req.TickMs > 0 {
 		cfg.Tick = time.Duration(req.TickMs) * time.Millisecond
+	}
+	if cfg.RunnerMode == "" {
+		cfg.RunnerMode = h.DefaultRunnerMode
 	}
 
 	runID, err := h.Manager.Start(r.Context(), cfg, time.Duration(req.DurationMs)*time.Millisecond)

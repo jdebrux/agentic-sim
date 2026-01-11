@@ -35,9 +35,13 @@ func (s *stubManager) Metrics() simulation.ManagerMetrics {
 	return s.metrics
 }
 
+func newTestHandler(m simulation.Manager) *Handler {
+	return NewHandler(m, time.Second, "simple")
+}
+
 func TestHealth(t *testing.T) {
 	m := &stubManager{}
-	h := NewHandler(m)
+	h := newTestHandler(m)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -56,7 +60,7 @@ func TestHealth(t *testing.T) {
 
 func TestSimulate_StartsRun(t *testing.T) {
 	m := &stubManager{startID: "run-1"}
-	h := NewHandler(m)
+	h := newTestHandler(m)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -92,7 +96,7 @@ func TestSimulate_ValidationErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &stubManager{}
-			h := NewHandler(m)
+			h := newTestHandler(m)
 			mux := http.NewServeMux()
 			h.Register(mux)
 
@@ -112,7 +116,7 @@ func TestSimulateStatus(t *testing.T) {
 			"run-1": {ID: "run-1", State: "completed", Ticks: 3, Events: 5, Mode: "rule"},
 		},
 	}
-	h := NewHandler(m)
+	h := newTestHandler(m)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -134,7 +138,7 @@ func TestSimulateStatus(t *testing.T) {
 
 func TestSimulateStatus_NotFound(t *testing.T) {
 	m := &stubManager{status: map[string]simulation.RunStatus{}}
-	h := NewHandler(m)
+	h := newTestHandler(m)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -150,7 +154,7 @@ func TestSimulateStatus_NotFound(t *testing.T) {
 
 func TestSimulateStatus_MethodNotAllowed(t *testing.T) {
 	m := &stubManager{status: map[string]simulation.RunStatus{}}
-	h := NewHandler(m)
+	h := newTestHandler(m)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -176,7 +180,7 @@ func TestMetrics(t *testing.T) {
 			LastMode:    "rule",
 		},
 	}
-	h := NewHandler(m)
+	h := newTestHandler(m)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -195,7 +199,7 @@ func TestMetrics(t *testing.T) {
 
 func TestMetrics_MethodNotAllowed(t *testing.T) {
 	m := &stubManager{}
-	h := NewHandler(m)
+	h := newTestHandler(m)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
