@@ -14,6 +14,7 @@ type Config struct {
 	DefaultTick       time.Duration
 	DefaultRunnerMode string
 	UseSimpleRunner   bool
+	ReasonerProvider  string
 }
 
 // Load reads configuration from environment with sensible defaults.
@@ -29,6 +30,7 @@ func Load() (Config, error) {
 		DefaultTick:       1 * time.Second,
 		DefaultRunnerMode: "simple",
 		UseSimpleRunner:   parseBoolEnv("USE_SIMPLE_RUNNER", false),
+		ReasonerProvider:  strings.ToLower(strings.TrimSpace(os.Getenv("REASONER_PROVIDER"))),
 	}
 
 	if tickStr := os.Getenv("TICK_MS"); tickStr != "" {
@@ -46,6 +48,10 @@ func Load() (Config, error) {
 		cfg.DefaultRunnerMode = mode
 	} else if cfg.UseSimpleRunner {
 		cfg.DefaultRunnerMode = "simple"
+	}
+
+	if cfg.ReasonerProvider != "" && !validReasonerProvider(cfg.ReasonerProvider) {
+		return Config{}, fmt.Errorf("invalid REASONER_PROVIDER: %s", cfg.ReasonerProvider)
 	}
 
 	return cfg, nil
@@ -71,6 +77,15 @@ func parseBoolEnv(key string, def bool) bool {
 func validRunnerMode(mode string) bool {
 	switch mode {
 	case "scripted", "simple", "rule":
+		return true
+	default:
+		return false
+	}
+}
+
+func validReasonerProvider(provider string) bool {
+	switch provider {
+	case "mock", "noop":
 		return true
 	default:
 		return false

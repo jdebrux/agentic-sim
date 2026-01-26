@@ -47,3 +47,19 @@ func TestEngineRunnerModeSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestEngineReasonerSelection(t *testing.T) {
+	engine := NewEngineWithConfig(EngineConfig{ReasonerProvider: "mock"})
+	for _, a := range engine.Agents {
+		ba, ok := a.(*agents.BasicAgent)
+		if !ok {
+			t.Fatalf("expected BasicAgent, got %T", a)
+		}
+		if ba.Runner != nil {
+			t.Fatalf("expected no runner when reasoner configured, got %T", ba.Runner)
+		}
+		if ba.Reasoner == nil {
+			t.Fatalf("expected reasoner to be set")
+		}
+	}
+}

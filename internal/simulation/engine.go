@@ -9,6 +9,7 @@ import (
 	"github.com/jdebrux/agentic-sim/internal/adk"
 	"github.com/jdebrux/agentic-sim/internal/agents"
 	"github.com/jdebrux/agentic-sim/internal/model"
+	"github.com/jdebrux/agentic-sim/internal/reasoning"
 	"github.com/jdebrux/agentic-sim/internal/world"
 )
 
@@ -28,9 +29,10 @@ type Metrics struct {
 
 // EngineConfig toggles engine behavior.
 type EngineConfig struct {
-	UseSimpleRunner bool   // deprecated in favor of RunnerMode
-	RunnerMode      string // scripted|simple|rule
-	Tick            time.Duration
+	UseSimpleRunner  bool   // deprecated in favor of RunnerMode
+	RunnerMode       string // scripted|simple|rule
+	Tick             time.Duration
+	ReasonerProvider string // mock|noop
 }
 
 // NewEngine initializes a new simulation engine with defaults.
@@ -42,9 +44,10 @@ func NewEngine() *Engine {
 func NewEngineWithConfig(cfg EngineConfig) *Engine {
 	w := world.NewWorld()
 
+	reasoner := buildReasoner(cfg.ReasonerProvider)
 	agentList := []agents.Agent{
-		newAgentWithConfig("agent-alice", "Alice", cfg),
-		newAgentWithConfig("agent-bob", "Bob", cfg),
+		newAgentWithConfig("agent-alice", "Alice", cfg, reasoner),
+		newAgentWithConfig("agent-bob", "Bob", cfg, reasoner),
 	}
 
 	for _, a := range agentList {
@@ -69,13 +72,16 @@ func NewEngineWithConfig(cfg EngineConfig) *Engine {
 	}
 }
 
-func newAgentWithConfig(id, name string, cfg EngineConfig) agents.Agent {
+func newAgentWithConfig(id, name string, cfg EngineConfig, reasoner reasoning.Reasoner) agents.Agent {
 	switch cfg.RunnerMode {
 	case "simple":
 		return agents.NewBasicAgentWithRunner(id, name, &adk.SimpleRunner{})
 	case "rule":
 		return agents.NewBasicAgentWithRunner(id, name, adk.NewRuleRunner())
 	default:
+		if reasoner != nil {
+			return agents.NewBasicAgentWithReasoner(id, name, reasoner)
+		}
 		// scripted
 		return agents.NewBasicAgent(id, name)
 	}
@@ -86,6 +92,25 @@ func tickOrDefault(t time.Duration, def time.Duration) time.Duration {
 		return t
 	}
 	return def
+}
+
+func buildReasoner(provider string) reasoning.Reasoner {
+	switch provider {
+	case "mock":
+		return &reasoning.MockReasoner{
+			Response: reasoning.Response{
+				Action: model.AgentAction{
+					Type:     model.ActionSpeak,
+					Message:  "mock reasoner action",
+					ToolName: "speak",
+				},
+			},
+		}
+	case "noop":
+		return &reasoning.NoopReasoner{}
+	default:
+		return nil
+	}
 }
 
 // Run starts the simulation loop for a given duration.

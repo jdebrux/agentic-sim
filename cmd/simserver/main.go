@@ -34,7 +34,7 @@ func main() {
 		}
 		return simulation.NewEngineWithConfig(cfg)
 	})
-	handler := api.NewHandler(manager, appCfg.DefaultTick, appCfg.DefaultRunnerMode)
+	handler := api.NewHandler(manager, appCfg.DefaultTick, appCfg.DefaultRunnerMode, appCfg.ReasonerProvider)
 	handler.Register(mux)
 
 	addr := getAddr(appCfg.HTTPPort)

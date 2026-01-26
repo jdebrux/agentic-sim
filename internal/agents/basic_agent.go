@@ -6,13 +6,15 @@ import (
 
 	"github.com/jdebrux/agentic-sim/internal/adk"
 	"github.com/jdebrux/agentic-sim/internal/model"
+	"github.com/jdebrux/agentic-sim/internal/reasoning"
 	"github.com/jdebrux/agentic-sim/internal/world"
 )
 
 type BasicAgent struct {
-	ID     string
-	Name   string
-	Runner adk.Runner
+	ID       string
+	Name     string
+	Runner   adk.Runner
+	Reasoner reasoning.Reasoner
 }
 
 func NewBasicAgent(id, name string) *BasicAgent {
@@ -27,6 +29,14 @@ func NewBasicAgentWithRunner(id, name string, runner adk.Runner) *BasicAgent {
 		ID:     id,
 		Name:   name,
 		Runner: runner,
+	}
+}
+
+func NewBasicAgentWithReasoner(id, name string, reasoner reasoning.Reasoner) *BasicAgent {
+	return &BasicAgent{
+		ID:       id,
+		Name:     name,
+		Reasoner: reasoner,
 	}
 }
 
@@ -47,6 +57,20 @@ func (a *BasicAgent) Tick(ctx context.Context, view world.WorldView) model.Agent
 		})
 		if err == nil {
 			return resp.Action
+		}
+	}
+	if a.Reasoner != nil {
+		resp, err := a.Reasoner.DecideAction(ctx, reasoning.Request{
+			AgentID:   a.ID,
+			AgentName: a.Name,
+			View:      view,
+		})
+		if err == nil {
+			act := resp.Action
+			if act.ActorID == "" {
+				act.ActorID = a.ID
+			}
+			return act
 		}
 	}
 

@@ -36,7 +36,7 @@ func (s *stubManager) Metrics() simulation.ManagerMetrics {
 }
 
 func newTestHandler(m simulation.Manager) *Handler {
-	return NewHandler(m, time.Second, "simple")
+	return NewHandler(m, time.Second, "simple", "mock")
 }
 
 func TestHealth(t *testing.T) {
@@ -91,6 +91,7 @@ func TestSimulate_ValidationErrors(t *testing.T) {
 		{"negative tick", `{"duration_ms":10,"tick_ms":-1}`, http.StatusBadRequest},
 		{"tick too large", `{"duration_ms":10,"tick_ms":10}`, http.StatusBadRequest},
 		{"invalid runner mode", `{"duration_ms":10,"runner_mode":"invalid"}`, http.StatusBadRequest},
+		{"invalid reasoner provider", `{"duration_ms":10,"reasoner_provider":"invalid"}`, http.StatusBadRequest},
 		{"malformed json", `{"duration_ms":10,`, http.StatusBadRequest},
 	}
 	for _, tt := range tests {

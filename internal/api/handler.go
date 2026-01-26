@@ -10,16 +10,18 @@ import (
 
 // Handler wires HTTP endpoints to services.
 type Handler struct {
-	Manager           simulation.Manager
-	DefaultTick       time.Duration
-	DefaultRunnerMode string
+	Manager                 simulation.Manager
+	DefaultTick             time.Duration
+	DefaultRunnerMode       string
+	DefaultReasonerProvider string
 }
 
-func NewHandler(m simulation.Manager, defaultTick time.Duration, defaultRunnerMode string) *Handler {
+func NewHandler(m simulation.Manager, defaultTick time.Duration, defaultRunnerMode, defaultReasonerProvider string) *Handler {
 	return &Handler{
-		Manager:           m,
-		DefaultTick:       defaultTick,
-		DefaultRunnerMode: defaultRunnerMode,
+		Manager:                 m,
+		DefaultTick:             defaultTick,
+		DefaultRunnerMode:       defaultRunnerMode,
+		DefaultReasonerProvider: defaultReasonerProvider,
 	}
 }
 
@@ -36,10 +38,11 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 }
 
 type simulateRequest struct {
-	DurationMs      int64  `json:"duration_ms"`
-	TickMs          int64  `json:"tick_ms"`
-	UseSimpleRunner bool   `json:"use_simple_runner"`
-	RunnerMode      string `json:"runner_mode,omitempty"`
+	DurationMs       int64  `json:"duration_ms"`
+	TickMs           int64  `json:"tick_ms"`
+	UseSimpleRunner  bool   `json:"use_simple_runner"`
+	RunnerMode       string `json:"runner_mode,omitempty"`
+	ReasonerProvider string `json:"reasoner_provider,omitempty"`
 }
 
 type simulateResponse struct {
@@ -76,10 +79,15 @@ func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid runner_mode", http.StatusBadRequest)
 		return
 	}
+	if req.ReasonerProvider != "" && !validReasonerProvider(req.ReasonerProvider) {
+		http.Error(w, "invalid reasoner_provider", http.StatusBadRequest)
+		return
+	}
 
 	cfg := simulation.EngineConfig{
-		UseSimpleRunner: req.UseSimpleRunner,
-		RunnerMode:      req.RunnerMode,
+		UseSimpleRunner:  req.UseSimpleRunner,
+		RunnerMode:       req.RunnerMode,
+		ReasonerProvider: req.ReasonerProvider,
 	}
 	cfg.Tick = h.DefaultTick
 	if req.TickMs > 0 {
@@ -87,6 +95,9 @@ func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
 	}
 	if cfg.RunnerMode == "" {
 		cfg.RunnerMode = h.DefaultRunnerMode
+	}
+	if cfg.ReasonerProvider == "" {
+		cfg.ReasonerProvider = h.DefaultReasonerProvider
 	}
 
 	runID, err := h.Manager.Start(r.Context(), cfg, time.Duration(req.DurationMs)*time.Millisecond)
@@ -152,6 +163,15 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 func validRunnerMode(mode string) bool {
 	switch mode {
 	case "scripted", "simple", "rule":
+		return true
+	default:
+		return false
+	}
+}
+
+func validReasonerProvider(provider string) bool {
+	switch provider {
+	case "mock", "noop":
 		return true
 	default:
 		return false
