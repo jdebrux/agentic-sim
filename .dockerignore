@@ -1,0 +1,24 @@
+# VCS
+.git
+.gitignore
+
+# Editor/OS
+.DS_Store
+
+# Build artifacts and caches
+bin
+dist
+out
+*.log
+*.tmp
+.gocache
+/.gocache
+/tmp
+
+# Go tooling caches
+/pkg/mod
+**/vendor
+
+# Tests output
+coverage.*
+*.coverprofile
