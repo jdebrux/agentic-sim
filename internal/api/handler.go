@@ -7,6 +7,9 @@ import (
 
 	"github.com/jdebrux/agentic-sim/internal/simulation"
 	"github.com/jdebrux/agentic-sim/internal/world"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // Handler wires HTTP endpoints to services.
@@ -66,6 +69,11 @@ type simulateResponse struct {
 }
 
 func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
+	tracer := otel.Tracer("api")
+	ctx, span := tracer.Start(r.Context(), "http.simulate")
+	defer span.End()
+	r = r.WithContext(ctx)
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -73,9 +81,16 @@ func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
 
 	var req simulateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid request body")
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+
+	span.SetAttributes(
+		attribute.Int64("duration_ms", req.DurationMs),
+		attribute.Int("agent.count", len(req.Agents)),
+	)
 
 	if req.DurationMs <= 0 {
 		http.Error(w, "duration_ms must be > 0", http.StatusBadRequest)
@@ -124,6 +139,8 @@ func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
 
 	runID, err := h.Manager.Start(r.Context(), cfg, time.Duration(req.DurationMs)*time.Millisecond)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "start simulation")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
