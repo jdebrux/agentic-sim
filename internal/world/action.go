@@ -1,4 +1,4 @@
-package model
+package world
 
 // ActionType enumerates the supported agent actions.
 type ActionType string

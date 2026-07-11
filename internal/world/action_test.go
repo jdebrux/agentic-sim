@@ -1,4 +1,4 @@
-package model
+package world
 
 import "testing"
 
@@ -6,9 +6,9 @@ import "testing"
 func TestAgentActionTypes(t *testing.T) {
 	t.Run("supports known action types", func(t *testing.T) {
 		want := map[ActionType]string{
-			ActionIdle: "idle",
-			ActionMove: "move",
-			ActionSpeak: "speak",
+			ActionIdle:     "idle",
+			ActionMove:     "move",
+			ActionSpeak:    "speak",
 			ActionInteract: "interact",
 		}
 
