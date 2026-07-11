@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jdebrux/agentic-sim/internal/agents"
-	"github.com/jdebrux/agentic-sim/internal/model"
 	"github.com/jdebrux/agentic-sim/internal/world"
 )
 
@@ -14,15 +12,15 @@ import (
 type mockAgent struct {
 	id     string
 	name   string
-	action model.AgentAction
+	action world.AgentAction
 }
 
 func (m mockAgent) GetID() string   { return m.id }
 func (m mockAgent) GetName() string { return m.name }
-func (m mockAgent) Tick(ctx context.Context, view world.WorldView) model.AgentAction {
+func (m mockAgent) Decide(ctx context.Context, view world.WorldView) (world.AgentAction, error) {
 	_ = ctx
 	_ = view
-	return m.action
+	return m.action, nil
 }
 
 // TestEngineHandleAction covers action application and event recording.
@@ -33,9 +31,9 @@ func TestEngineHandleAction(t *testing.T) {
 		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default"}
 
 		engine := &Engine{World: w}
-		action := model.AgentAction{
+		action := world.AgentAction{
 			ActorID:  "agent-1",
-			Type:     model.ActionMove,
+			Type:     world.ActionMove,
 			Location: "loc_target",
 		}
 
@@ -60,9 +58,9 @@ func TestEngineHandleAction(t *testing.T) {
 		w := world.NewWorld()
 		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default"}
 		engine := &Engine{World: w}
-		action := model.AgentAction{
+		action := world.AgentAction{
 			ActorID:  "agent-1",
-			Type:     model.ActionMove,
+			Type:     world.ActionMove,
 			Location: "loc_missing",
 		}
 
@@ -88,9 +86,9 @@ func TestEngineHandleAction(t *testing.T) {
 		w := world.NewWorld()
 		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default"}
 		engine := &Engine{World: w}
-		action := model.AgentAction{
+		action := world.AgentAction{
 			ActorID:  "agent-1",
-			Type:     model.ActionInteract,
+			Type:     world.ActionInteract,
 			TargetID: "",
 		}
 
@@ -111,10 +109,10 @@ func TestEngineHandleAction(t *testing.T) {
 		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default"}
 		w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_default"}
 		engine := &Engine{World: w}
-		action := model.AgentAction{
+		action := world.AgentAction{
 			ActorID:  "agent-1",
 			TargetID: "agent-2",
-			Type:     model.ActionGreet,
+			Type:     world.ActionGreet,
 			Message:  "hi",
 		}
 
@@ -133,10 +131,10 @@ func TestEngineHandleAction(t *testing.T) {
 		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default"}
 		w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_market"}
 		engine := &Engine{World: w}
-		action := model.AgentAction{
+		action := world.AgentAction{
 			ActorID:  "agent-1",
 			TargetID: "agent-2",
-			Type:     model.ActionInteract,
+			Type:     world.ActionInteract,
 		}
 
 		engine.handleAction(context.Background(), action)
@@ -155,10 +153,10 @@ func TestEngineHandleAction(t *testing.T) {
 		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_market", Credits: 5}
 		w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_market", Credits: 2}
 		engine := &Engine{World: w}
-		action := model.AgentAction{
+		action := world.AgentAction{
 			ActorID:  "agent-1",
 			TargetID: "agent-2",
-			Type:     model.ActionTrade,
+			Type:     world.ActionTrade,
 		}
 
 		engine.handleAction(context.Background(), action)
@@ -179,10 +177,10 @@ func TestEngineHandleAction(t *testing.T) {
 		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default", Credits: 5}
 		w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_default", Credits: 2}
 		engine := &Engine{World: w}
-		action := model.AgentAction{
+		action := world.AgentAction{
 			ActorID:  "agent-1",
 			TargetID: "agent-2",
-			Type:     model.ActionTrade,
+			Type:     world.ActionTrade,
 		}
 
 		engine.handleAction(context.Background(), action)
@@ -204,10 +202,10 @@ func TestEngineHandleAction(t *testing.T) {
 		w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_market", Credits: 0}
 		w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_market", Credits: 5}
 		engine := &Engine{World: w}
-		action := model.AgentAction{
+		action := world.AgentAction{
 			ActorID:  "agent-1",
 			TargetID: "agent-2",
-			Type:     model.ActionTrade,
+			Type:     world.ActionTrade,
 		}
 
 		engine.handleAction(context.Background(), action)
@@ -233,18 +231,18 @@ func TestEngineRunCoversLoop(t *testing.T) {
 	moveAgent := mockAgent{
 		id:   "agent-1",
 		name: "Mover",
-		action: model.AgentAction{
+		action: world.AgentAction{
 			ActorID:  "agent-1",
-			Type:     model.ActionMove,
+			Type:     world.ActionMove,
 			Location: "loc_target",
 		},
 	}
 	speakAgent := mockAgent{
 		id:   "agent-2",
 		name: "Speaker",
-		action: model.AgentAction{
+		action: world.AgentAction{
 			ActorID: "agent-2",
-			Type:    model.ActionSpeak,
+			Type:    world.ActionSpeak,
 			Message: "hello",
 		},
 	}
@@ -253,9 +251,9 @@ func TestEngineRunCoversLoop(t *testing.T) {
 	w.Agents[speakAgent.id] = &world.AgentState{ID: speakAgent.id, Name: speakAgent.name, Location: "loc_default"}
 
 	engine := &Engine{
-		World:  w,
-		Agents: []agents.Agent{moveAgent, speakAgent},
-		Tick:   5 * time.Millisecond,
+		World:   w,
+		Clients: []AgentClient{moveAgent, speakAgent},
+		Tick:    5 * time.Millisecond,
 	}
 
 	engine.Run(context.Background(), 12*time.Millisecond)

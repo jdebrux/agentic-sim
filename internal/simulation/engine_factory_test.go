@@ -3,63 +3,72 @@ package simulation
 import (
 	"testing"
 
-	"github.com/jdebrux/agentic-sim/internal/adk"
-	"github.com/jdebrux/agentic-sim/internal/agents"
+	"github.com/jdebrux/agentic-sim/internal/world"
 )
 
-func TestEngineRunnerModeSelection(t *testing.T) {
-	cases := []struct {
-		name   string
-		mode   string
-		expect any
-	}{
-		{"scripted", "scripted", nil},
-		{"simple", "simple", (*adk.SimpleRunner)(nil)},
-		{"rule", "rule", (*adk.RuleRunner)(nil)},
+func TestEngineDefaultAgents(t *testing.T) {
+	engine := NewEngineWithConfig(EngineConfig{})
+
+	if len(engine.World.Agents) != 2 {
+		t.Fatalf("expected 2 default agents, got %d", len(engine.World.Agents))
 	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			engine := NewEngineWithConfig(EngineConfig{RunnerMode: tc.mode})
-			for _, a := range engine.Agents {
-				ba, ok := a.(*agents.BasicAgent)
-				if !ok {
-					t.Fatalf("expected BasicAgent, got %T", a)
-				}
-
-				switch tc.expect.(type) {
-				case nil:
-					if ba.Runner != nil {
-						t.Fatalf("expected nil runner, got %T", ba.Runner)
-					}
-				case *adk.SimpleRunner:
-					if _, ok := ba.Runner.(*adk.SimpleRunner); !ok {
-						t.Fatalf("expected SimpleRunner, got %T", ba.Runner)
-					}
-				case *adk.RuleRunner:
-					if _, ok := ba.Runner.(*adk.RuleRunner); !ok {
-						t.Fatalf("expected RuleRunner, got %T", ba.Runner)
-					}
-				default:
-					t.Fatalf("unknown expected type %T", tc.expect)
-				}
-			}
-		})
+	if _, ok := engine.World.Agents["agent-alice"]; !ok {
+		t.Fatalf("expected agent-alice in world")
+	}
+	if _, ok := engine.World.Agents["agent-bob"]; !ok {
+		t.Fatalf("expected agent-bob in world")
 	}
 }
 
-func TestEngineReasonerSelection(t *testing.T) {
-	engine := NewEngineWithConfig(EngineConfig{ReasonerProvider: "mock"})
-	for _, a := range engine.Agents {
-		ba, ok := a.(*agents.BasicAgent)
-		if !ok {
-			t.Fatalf("expected BasicAgent, got %T", a)
+func TestEngineDefaultLocations(t *testing.T) {
+	engine := NewEngineWithConfig(EngineConfig{})
+
+	want := []string{"loc_default", "loc_market", "loc_park"}
+	for _, id := range want {
+		if _, ok := engine.World.Locations[id]; !ok {
+			t.Fatalf("expected location %s", id)
 		}
-		if ba.Runner != nil {
-			t.Fatalf("expected no runner when reasoner configured, got %T", ba.Runner)
-		}
-		if ba.Reasoner == nil {
-			t.Fatalf("expected reasoner to be set")
-		}
+	}
+}
+
+func TestEngineCustomAgents(t *testing.T) {
+	engine := NewEngineWithConfig(EngineConfig{
+		Agents: []AgentRegistration{
+			{
+				ID:       "agent-carol",
+				Name:     "Carol",
+				Location: "loc_market",
+				Traits:   world.Traits{Friendliness: 7, Curiosity: 3},
+				Goals:    []string{"trade"},
+				Energy:   80,
+				Credits:  20,
+			},
+		},
+	})
+
+	if len(engine.World.Agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(engine.World.Agents))
+	}
+	carol, ok := engine.World.Agents["agent-carol"]
+	if !ok {
+		t.Fatalf("expected agent-carol")
+	}
+	if carol.Energy != 80 || carol.Credits != 20 {
+		t.Fatalf("expected energy=80 credits=20, got energy=%d credits=%d", carol.Energy, carol.Credits)
+	}
+}
+
+func TestEngineCustomLocations(t *testing.T) {
+	engine := NewEngineWithConfig(EngineConfig{
+		Locations: []world.Location{
+			{ID: "loc_arena", Name: "Arena"},
+		},
+	})
+
+	if len(engine.World.Locations) != 1 {
+		t.Fatalf("expected 1 location, got %d", len(engine.World.Locations))
+	}
+	if _, ok := engine.World.Locations["loc_arena"]; !ok {
+		t.Fatalf("expected loc_arena")
 	}
 }

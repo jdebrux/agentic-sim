@@ -3,20 +3,36 @@ package simulation
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
-	"github.com/jdebrux/agentic-sim/internal/adk"
-	"github.com/jdebrux/agentic-sim/internal/agents"
-	"github.com/jdebrux/agentic-sim/internal/model"
-	"github.com/jdebrux/agentic-sim/internal/reasoning"
 	"github.com/jdebrux/agentic-sim/internal/world"
 )
+
+// AgentClient defines how the engine communicates with an external agent.
+// Phase 1 uses a stub implementation; Phase 3 wires it to A2A.
+type AgentClient interface {
+	GetID() string
+	GetName() string
+	Decide(ctx context.Context, view world.WorldView) (world.AgentAction, error)
+}
+
+// AgentRegistration is how agents enter the sim.
+type AgentRegistration struct {
+	ID           string       `json:"id"`
+	Name         string       `json:"name"`
+	Location     string       `json:"location"`
+	Traits       world.Traits `json:"traits"`
+	Goals        []string     `json:"goals"`
+	Energy       int          `json:"energy"`
+	Credits      int          `json:"credits"`
+	AgentCardURL string       `json:"agent_card_url,omitempty"`
+}
 
 // Engine manages the simulation lifecycle.
 type Engine struct {
 	World   *world.World
-	Agents  []agents.Agent
+	Clients []AgentClient
 	Tick    time.Duration
 	Metrics Metrics
 }
@@ -29,10 +45,9 @@ type Metrics struct {
 
 // EngineConfig toggles engine behavior.
 type EngineConfig struct {
-	UseSimpleRunner  bool   // deprecated in favor of RunnerMode
-	RunnerMode       string // scripted|simple|rule
-	Tick             time.Duration
-	ReasonerProvider string // mock|noop
+	Tick      time.Duration
+	Agents    []AgentRegistration
+	Locations []world.Location
 }
 
 // NewEngine initializes a new simulation engine with defaults.
@@ -40,50 +55,69 @@ func NewEngine() *Engine {
 	return NewEngineWithConfig(EngineConfig{})
 }
 
-// NewEngineWithConfig allows optional toggles (e.g., simple runner).
+// NewEngineWithConfig creates an engine from config.
 func NewEngineWithConfig(cfg EngineConfig) *Engine {
 	w := world.NewWorld()
 
-	reasoner := buildReasoner(cfg.ReasonerProvider)
-	agentList := []agents.Agent{
-		newAgentWithConfig("agent-alice", "Alice", cfg, reasoner),
-		newAgentWithConfig("agent-bob", "Bob", cfg, reasoner),
+	locations := cfg.Locations
+	if len(locations) == 0 {
+		locations = defaultLocations()
+	}
+	w.Locations = make(map[string]world.Location, len(locations))
+	for _, loc := range locations {
+		w.Locations[loc.ID] = loc
 	}
 
-	for _, a := range agentList {
-		w.Agents[a.GetID()] = &world.AgentState{
-			ID:       a.GetID(),
-			Name:     a.GetName(),
-			Location: "loc_default",
-			Traits: world.Traits{
-				Friendliness: 5,
-				Curiosity:    5,
-			},
-			Goals:   []string{"explore", "socialize"},
-			Energy:  100,
-			Credits: 10,
+	agents := cfg.Agents
+	if len(agents) == 0 {
+		agents = defaultAgents()
+	}
+	for _, a := range agents {
+		w.Agents[a.ID] = &world.AgentState{
+			ID:       a.ID,
+			Name:     a.Name,
+			Location: a.Location,
+			Traits:   a.Traits,
+			Goals:    a.Goals,
+			Energy:   a.Energy,
+			Credits:  a.Credits,
 		}
 	}
 
 	return &Engine{
-		World:  w,
-		Agents: agentList,
-		Tick:   tickOrDefault(cfg.Tick, 1*time.Second),
+		World: w,
+		Tick:  tickOrDefault(cfg.Tick, 1*time.Second),
 	}
 }
 
-func newAgentWithConfig(id, name string, cfg EngineConfig, reasoner reasoning.Reasoner) agents.Agent {
-	switch cfg.RunnerMode {
-	case "simple":
-		return agents.NewBasicAgentWithRunner(id, name, &adk.SimpleRunner{})
-	case "rule":
-		return agents.NewBasicAgentWithRunner(id, name, adk.NewRuleRunner())
-	default:
-		if reasoner != nil {
-			return agents.NewBasicAgentWithReasoner(id, name, reasoner)
-		}
-		// scripted
-		return agents.NewBasicAgent(id, name)
+func defaultLocations() []world.Location {
+	return []world.Location{
+		{ID: "loc_default", Name: "Central Plaza", Description: "A neutral starting point for all agents."},
+		{ID: "loc_market", Name: "Marketplace", Description: "Bustling area for trading and chatting."},
+		{ID: "loc_park", Name: "Park", Description: "A quiet green space for strolling."},
+	}
+}
+
+func defaultAgents() []AgentRegistration {
+	return []AgentRegistration{
+		{
+			ID:       "agent-alice",
+			Name:     "Alice",
+			Location: "loc_default",
+			Traits:   world.Traits{Friendliness: 5, Curiosity: 5},
+			Goals:    []string{"explore", "socialize"},
+			Energy:   100,
+			Credits:  10,
+		},
+		{
+			ID:       "agent-bob",
+			Name:     "Bob",
+			Location: "loc_default",
+			Traits:   world.Traits{Friendliness: 5, Curiosity: 5},
+			Goals:    []string{"explore", "socialize"},
+			Energy:   100,
+			Credits:  10,
+		},
 	}
 }
 
@@ -94,49 +128,40 @@ func tickOrDefault(t time.Duration, def time.Duration) time.Duration {
 	return def
 }
 
-func buildReasoner(provider string) reasoning.Reasoner {
-	switch provider {
-	case "mock":
-		return &reasoning.MockReasoner{
-			Response: reasoning.Response{
-				Action: model.AgentAction{
-					Type:     model.ActionSpeak,
-					Message:  "mock reasoner action",
-					ToolName: "speak",
-				},
-			},
-		}
-	case "noop":
-		return &reasoning.NoopReasoner{}
-	default:
-		return nil
-	}
-}
-
 // Run starts the simulation loop for a given duration.
 func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 	ticker := time.NewTicker(e.Tick)
 	defer ticker.Stop()
 
 	end := time.After(duration)
-	step := 0
 
-	for {
+	for step := 0; ; step++ {
 		select {
 		case <-ctx.Done():
-			log.Println("Simulation stopped by context.")
+			slog.Info("simulation stopped by context")
 			return
 		case <-end:
-			log.Println("Simulation duration complete.")
+			slog.Info("simulation duration complete")
 			return
 		case <-ticker.C:
 			step++
-			log.Printf("=== Simulation Step %d ===", step)
-			actions := make([]model.AgentAction, 0, len(e.Agents))
-			for _, a := range e.Agents {
-				view := world.NewWorldView(e.World, a.GetID(), 10)
-				action := a.Tick(ctx, view)
-				log.Printf("action.request tick=%d actor=%s type=%s target=%s location=%s reason=%s", e.World.Timestep, action.ActorID, action.Type, action.TargetID, action.Location, action.Reason)
+			slog.Info("simulation tick", "step", step, "timestep", e.World.Timestep)
+
+			actions := make([]world.AgentAction, 0, len(e.Clients))
+			for _, client := range e.Clients {
+				view := world.NewWorldView(e.World, client.GetID(), 10)
+				action, err := client.Decide(ctx, view)
+				if err != nil {
+					slog.Warn("agent decision failed",
+						"agent", client.GetID(),
+						"error", err,
+					)
+					action = world.AgentAction{
+						ActorID: client.GetID(),
+						Type:    world.ActionIdle,
+						Reason:  "decision error",
+					}
+				}
 				actions = append(actions, action)
 			}
 
@@ -150,7 +175,7 @@ func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 }
 
 // handleAction applies an agent action to the world and records an event.
-func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
+func (e *Engine) handleAction(ctx context.Context, action world.AgentAction) {
 	_ = ctx
 
 	event := world.Event{
@@ -173,10 +198,10 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 	var err error
 
 	switch action.Type {
-	case model.ActionMove:
+	case world.ActionMove:
 		err = e.World.MoveAgent(action.ActorID, action.Location)
 		e.applyEnergyDelta(&event, action.ActorID, -5)
-	case model.ActionInteract, model.ActionGreet:
+	case world.ActionInteract, world.ActionGreet:
 		actor, ok := e.World.GetAgent(action.ActorID)
 		if !ok {
 			err = fmt.Errorf("actor %s not found for interaction", action.ActorID)
@@ -195,7 +220,7 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 			err = fmt.Errorf("interaction requires co-location at %s", actor.Location)
 		}
 		e.applyEnergyDelta(&event, action.ActorID, -1)
-	case model.ActionTrade:
+	case world.ActionTrade:
 		actor, ok := e.World.GetAgent(action.ActorID)
 		if !ok {
 			err = fmt.Errorf("actor %s not found for trade", action.ActorID)
@@ -225,20 +250,26 @@ func (e *Engine) handleAction(ctx context.Context, action model.AgentAction) {
 			event.Payload["target_credits"] = target.Credits
 		}
 		e.applyEnergyDelta(&event, action.ActorID, -3)
-	case model.ActionSpeak, model.ActionIdle:
-		// No world mutation required.
+	case world.ActionSpeak, world.ActionIdle:
 		e.applyEnergyDelta(&event, action.ActorID, -1)
-	case model.ActionRest:
+	case world.ActionRest:
 		e.applyEnergyDelta(&event, action.ActorID, +10)
 	default:
 		err = fmt.Errorf("unsupported action type: %s", action.Type)
 	}
 
 	if err != nil {
-		log.Printf("action failed for %s: %v", action.ActorID, err)
+		slog.Warn("action failed", "actor", action.ActorID, "error", err)
 		event.Payload["error"] = err.Error()
 	} else {
-		log.Printf("action.applied tick=%d actor=%s type=%s target=%s location=%s reason=%s", e.World.Timestep, action.ActorID, action.Type, action.TargetID, action.Location, action.Reason)
+		slog.Info("action applied",
+			"tick", e.World.Timestep,
+			"actor", action.ActorID,
+			"type", action.Type,
+			"target", action.TargetID,
+			"location", action.Location,
+			"reason", action.Reason,
+		)
 	}
 
 	e.World.AddEvent(event)
