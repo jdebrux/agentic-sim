@@ -248,3 +248,42 @@ func TestMetrics_MethodNotAllowed(t *testing.T) {
 		t.Fatalf("expected 405, got %d", rec.Code)
 	}
 }
+
+func TestAgentCard(t *testing.T) {
+	m := &stubManager{}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/agent-card", nil)
+	req.Host = "localhost:8080"
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"name":"agentic-sim"`)) {
+		t.Fatalf("expected agentic-sim name in body, got %s", rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"supportedInterfaces"`)) {
+		t.Fatalf("expected supportedInterfaces in body, got %s", rec.Body.String())
+	}
+}
+
+func TestAgentCard_MethodNotAllowed(t *testing.T) {
+	m := &stubManager{}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/.well-known/agent-card", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rec.Code)
+	}
+}
