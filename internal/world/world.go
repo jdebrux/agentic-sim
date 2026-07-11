@@ -11,27 +11,27 @@ import (
 
 // AgentState holds in-memory state for an agent in the world.
 type AgentState struct {
-	ID       string
-	Name     string
-	Location string
-	Traits   Traits
-	Goals    []string
-	Mood     string
-	Energy   int
-	Credits  int
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Location string   `json:"location"`
+	Traits   Traits   `json:"traits"`
+	Goals    []string `json:"goals"`
+	Mood     string   `json:"mood,omitempty"`
+	Energy   int      `json:"energy"`
+	Credits  int      `json:"credits"`
 }
 
 // Traits captures simple personality traits for agents.
 type Traits struct {
-	Friendliness int
-	Curiosity    int
+	Friendliness int `json:"friendliness"`
+	Curiosity    int `json:"curiosity"`
 }
 
 // Location represents a place within the world.
 type Location struct {
-	ID          string
-	Name        string
-	Description string
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 }
 
 // World represents the environment in which agents exist.

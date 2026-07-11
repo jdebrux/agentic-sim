@@ -3,13 +3,13 @@ package world
 // WorldView is a read-only snapshot of the world for a specific agent.
 // It is shaped to be easily serialized for ADK context building.
 type WorldView struct {
-	WorldID      string
-	Tick         int64
-	Self         AgentState
-	OtherAgents  []AgentState
-	Locations    []Location
-	RecentEvents []Event
-	AtMarket     bool
+	WorldID      string       `json:"world_id"`
+	Tick         int64        `json:"tick"`
+	Self         AgentState   `json:"self"`
+	OtherAgents  []AgentState `json:"other_agents"`
+	Locations    []Location   `json:"locations"`
+	RecentEvents []Event      `json:"recent_events"`
+	AtMarket     bool         `json:"at_market"`
 }
 
 // NewWorldView builds a read-only view for the given agent.

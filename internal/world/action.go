@@ -16,13 +16,13 @@ const (
 // AgentAction captures an agent's intended action for a tick.
 // ToolName/ToolArgs allow mapping to ADK tool calls.
 type AgentAction struct {
-	ActorID  string
-	Type     ActionType
-	TargetID string            // optional, used for interactions
-	Location string            // optional, used for move targets
-	Message  string            // optional, used for speak
-	Reason   string            // optional, explains intent (e.g., move reason)
-	ToolName string            // optional, ADK tool identifier
-	ToolArgs map[string]string // optional, ADK tool arguments
-	Metadata map[string]string // optional, free-form annotations
+	ActorID  string            `json:"actor_id,omitempty"`
+	Type     ActionType        `json:"action"`
+	TargetID string            `json:"target_id,omitempty"` // used for interactions
+	Location string            `json:"location,omitempty"`  // used for move targets
+	Message  string            `json:"message,omitempty"`   // used for speak
+	Reason   string            `json:"reason,omitempty"`    // explains intent (e.g., move reason)
+	ToolName string            `json:"tool_name,omitempty"` // ADK tool identifier
+	ToolArgs map[string]string `json:"tool_args,omitempty"` // ADK tool arguments
+	Metadata map[string]string `json:"metadata,omitempty"`  // free-form annotations
 }
