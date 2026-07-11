@@ -10,18 +10,14 @@ import (
 
 // Handler wires HTTP endpoints to services.
 type Handler struct {
-	Manager                 simulation.Manager
-	DefaultTick             time.Duration
-	DefaultRunnerMode       string
-	DefaultReasonerProvider string
+	Manager     simulation.Manager
+	DefaultTick time.Duration
 }
 
-func NewHandler(m simulation.Manager, defaultTick time.Duration, defaultRunnerMode, defaultReasonerProvider string) *Handler {
+func NewHandler(m simulation.Manager, defaultTick time.Duration) *Handler {
 	return &Handler{
-		Manager:                 m,
-		DefaultTick:             defaultTick,
-		DefaultRunnerMode:       defaultRunnerMode,
-		DefaultReasonerProvider: defaultReasonerProvider,
+		Manager:     m,
+		DefaultTick: defaultTick,
 	}
 }
 
@@ -38,17 +34,13 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 }
 
 type simulateRequest struct {
-	DurationMs       int64  `json:"duration_ms"`
-	TickMs           int64  `json:"tick_ms"`
-	UseSimpleRunner  bool   `json:"use_simple_runner"`
-	RunnerMode       string `json:"runner_mode,omitempty"`
-	ReasonerProvider string `json:"reasoner_provider,omitempty"`
+	DurationMs int64 `json:"duration_ms"`
+	TickMs     int64 `json:"tick_ms"`
 }
 
 type simulateResponse struct {
-	ID         string `json:"id"`
-	Status     string `json:"status"`
-	RunnerMode string `json:"runner_mode,omitempty"`
+	ID     string `json:"id"`
+	Status string `json:"status"`
 }
 
 func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
@@ -75,29 +67,12 @@ func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "tick_ms must be less than duration_ms", http.StatusBadRequest)
 		return
 	}
-	if req.RunnerMode != "" && !validRunnerMode(req.RunnerMode) {
-		http.Error(w, "invalid runner_mode", http.StatusBadRequest)
-		return
-	}
-	if req.ReasonerProvider != "" && !validReasonerProvider(req.ReasonerProvider) {
-		http.Error(w, "invalid reasoner_provider", http.StatusBadRequest)
-		return
-	}
 
 	cfg := simulation.EngineConfig{
-		UseSimpleRunner:  req.UseSimpleRunner,
-		RunnerMode:       req.RunnerMode,
-		ReasonerProvider: req.ReasonerProvider,
+		Tick: h.DefaultTick,
 	}
-	cfg.Tick = h.DefaultTick
 	if req.TickMs > 0 {
 		cfg.Tick = time.Duration(req.TickMs) * time.Millisecond
-	}
-	if cfg.RunnerMode == "" {
-		cfg.RunnerMode = h.DefaultRunnerMode
-	}
-	if cfg.ReasonerProvider == "" {
-		cfg.ReasonerProvider = h.DefaultReasonerProvider
 	}
 
 	runID, err := h.Manager.Start(r.Context(), cfg, time.Duration(req.DurationMs)*time.Millisecond)
@@ -107,19 +82,17 @@ func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, simulateResponse{
-		ID:         runID,
-		Status:     "running",
-		RunnerMode: cfg.RunnerMode,
+		ID:     runID,
+		Status: "running",
 	})
 }
 
 type simulateStatusResponse struct {
-	ID         string `json:"id"`
-	Status     string `json:"status"`
-	Ticks      int64  `json:"ticks"`
-	Events     int64  `json:"events"`
-	RunnerMode string `json:"runner_mode,omitempty"`
-	Error      string `json:"error,omitempty"`
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Ticks  int64  `json:"ticks"`
+	Events int64  `json:"events"`
+	Error  string `json:"error,omitempty"`
 }
 
 func (h *Handler) simulateStatus(w http.ResponseWriter, r *http.Request) {
@@ -139,11 +112,10 @@ func (h *Handler) simulateStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := simulateStatusResponse{
-		ID:         status.ID,
-		Status:     status.State,
-		Ticks:      status.Ticks,
-		Events:     status.Events,
-		RunnerMode: status.Mode,
+		ID:     status.ID,
+		Status: status.State,
+		Ticks:  status.Ticks,
+		Events: status.Events,
 	}
 	if status.Error != "" {
 		resp.Error = status.Error
@@ -158,24 +130,6 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 	m := h.Manager.Metrics()
 	writeJSON(w, http.StatusOK, m)
-}
-
-func validRunnerMode(mode string) bool {
-	switch mode {
-	case "scripted", "simple", "rule":
-		return true
-	default:
-		return false
-	}
-}
-
-func validReasonerProvider(provider string) bool {
-	switch provider {
-	case "mock", "noop":
-		return true
-	default:
-		return false
-	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

@@ -22,7 +22,6 @@ type stubManager struct {
 func (s *stubManager) Start(ctx context.Context, cfg simulation.EngineConfig, duration time.Duration) (string, error) {
 	_ = ctx
 	_ = duration
-	s.metrics.LastMode = cfg.RunnerMode
 	return s.startID, s.startErr
 }
 
@@ -36,7 +35,7 @@ func (s *stubManager) Metrics() simulation.ManagerMetrics {
 }
 
 func newTestHandler(m simulation.Manager) *Handler {
-	return NewHandler(m, time.Second, "simple", "mock")
+	return NewHandler(m, time.Second)
 }
 
 func TestHealth(t *testing.T) {
@@ -64,7 +63,7 @@ func TestSimulate_StartsRun(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	body := []byte(`{"duration_ms":10,"runner_mode":"rule"}`)
+	body := []byte(`{"duration_ms":10,"tick_ms":5}`)
 	req := httptest.NewRequest(http.MethodPost, "/simulate", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 
@@ -75,9 +74,6 @@ func TestSimulate_StartsRun(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"id":"run-1"`)) {
 		t.Fatalf("expected run id in response, got %s", rec.Body.String())
-	}
-	if m.metrics.LastMode == "" {
-		t.Fatalf("expected runner mode recorded on start")
 	}
 }
 
@@ -90,8 +86,6 @@ func TestSimulate_ValidationErrors(t *testing.T) {
 		{"missing duration", `{"duration_ms":0}`, http.StatusBadRequest},
 		{"negative tick", `{"duration_ms":10,"tick_ms":-1}`, http.StatusBadRequest},
 		{"tick too large", `{"duration_ms":10,"tick_ms":10}`, http.StatusBadRequest},
-		{"invalid runner mode", `{"duration_ms":10,"runner_mode":"invalid"}`, http.StatusBadRequest},
-		{"invalid reasoner provider", `{"duration_ms":10,"reasoner_provider":"invalid"}`, http.StatusBadRequest},
 		{"malformed json", `{"duration_ms":10,`, http.StatusBadRequest},
 	}
 	for _, tt := range tests {
@@ -114,7 +108,7 @@ func TestSimulate_ValidationErrors(t *testing.T) {
 func TestSimulateStatus(t *testing.T) {
 	m := &stubManager{
 		status: map[string]simulation.RunStatus{
-			"run-1": {ID: "run-1", State: "completed", Ticks: 3, Events: 5, Mode: "rule"},
+			"run-1": {ID: "run-1", State: "completed", Ticks: 3, Events: 5},
 		},
 	}
 	h := newTestHandler(m)
@@ -131,9 +125,6 @@ func TestSimulateStatus(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"ticks":3`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"events":5`)) {
 		t.Fatalf("expected ticks/events in status response, got %s", rec.Body.String())
-	}
-	if !bytes.Contains(rec.Body.Bytes(), []byte(`"runner_mode":"rule"`)) {
-		t.Fatalf("expected runner_mode in status response, got %s", rec.Body.String())
 	}
 }
 
@@ -178,7 +169,6 @@ func TestMetrics(t *testing.T) {
 			Errored:     0,
 			TotalTicks:  10,
 			TotalEvents: 20,
-			LastMode:    "rule",
 		},
 	}
 	h := newTestHandler(m)

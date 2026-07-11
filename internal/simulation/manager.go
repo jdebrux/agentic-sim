@@ -2,10 +2,9 @@ package simulation
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
-
-	"github.com/jdebrux/agentic-sim/internal/storage"
 )
 
 // Manager tracks simulation runs by ID.
@@ -22,7 +21,6 @@ type RunStatus struct {
 	Ticks  int64
 	Events int64
 	Error  string
-	Mode   string
 }
 
 type runRecord struct {
@@ -36,29 +34,13 @@ type InMemoryManager struct {
 	runs      map[string]*runRecord
 	mu        sync.RWMutex
 	metrics   ManagerMetrics
-	store     storage.Store
 }
 
-// ManagerOption configures the manager.
-type ManagerOption func(m *InMemoryManager)
-
-// WithStore sets a persistence store to save runs.
-func WithStore(store storage.Store) ManagerOption {
-	return func(m *InMemoryManager) {
-		m.store = store
-	}
-}
-
-func NewInMemoryManager(factory func(cfg EngineConfig) *Engine, opts ...ManagerOption) *InMemoryManager {
-	m := &InMemoryManager{
+func NewInMemoryManager(factory func(cfg EngineConfig) *Engine) *InMemoryManager {
+	return &InMemoryManager{
 		newEngine: factory,
 		runs:      make(map[string]*runRecord),
-		store:     nil,
 	}
-	for _, opt := range opts {
-		opt(m)
-	}
-	return m
 }
 
 func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration time.Duration) (string, error) {
@@ -67,7 +49,6 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 		status: RunStatus{
 			ID:    id,
 			State: "running",
-			Mode:  cfg.RunnerMode,
 		},
 	}
 
@@ -75,12 +56,11 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 	m.runs[id] = rec
 	m.metrics.TotalRuns++
 	m.metrics.Running++
-	m.metrics.LastMode = cfg.RunnerMode
 	m.mu.Unlock()
 
 	go func() {
 		engine := m.newEngine(cfg)
-		engine.Run(context.Background(), duration)
+		engine.Run(ctx, duration)
 
 		m.mu.Lock()
 		m.metrics.Running--
@@ -94,10 +74,6 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 		rec.status.Events = m.safeEventsCount(engine)
 		rec.status.State = "completed"
 		rec.mu.Unlock()
-
-		if m.store != nil {
-			_ = m.store.SaveRun(context.Background(), id, engine.World, engine.World.Events)
-		}
 	}()
 
 	return id, nil
@@ -117,13 +93,12 @@ func (m *InMemoryManager) Status(id string) (RunStatus, bool) {
 
 // ManagerMetrics is a snapshot of aggregate run metrics.
 type ManagerMetrics struct {
-	TotalRuns   int64  `json:"total_runs"`
-	Running     int64  `json:"running_runs"`
-	Completed   int64  `json:"completed_runs"`
-	Errored     int64  `json:"errored_runs"`
-	TotalTicks  int64  `json:"ticks_total"`
-	TotalEvents int64  `json:"events_total"`
-	LastMode    string `json:"runner_mode_last,omitempty"`
+	TotalRuns   int64 `json:"total_runs"`
+	Running     int64 `json:"running_runs"`
+	Completed   int64 `json:"completed_runs"`
+	Errored     int64 `json:"errored_runs"`
+	TotalTicks  int64 `json:"ticks_total"`
+	TotalEvents int64 `json:"events_total"`
 }
 
 func (m *InMemoryManager) Metrics() ManagerMetrics {
