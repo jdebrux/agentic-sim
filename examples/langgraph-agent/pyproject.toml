@@ -1,0 +1,14 @@
+[project]
+name = "langgraph-agent"
+version = "0.1.0"
+description = "LangGraph-based A2A reference agent for agentic-sim"
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph>=0.2",
+    "langchain-litellm>=0.1",
+    "a2a-sdk[http-server]>=0.3.4,<0.4",
+    "uvicorn>=0.30",
+]
+
+[tool.uv]
+package = false
