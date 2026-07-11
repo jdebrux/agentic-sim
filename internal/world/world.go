@@ -2,7 +2,7 @@ package world
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 )
 
 // AgentState holds in-memory state for an agent in the world.
@@ -63,7 +63,7 @@ func NewWorld() *World {
 
 func (w *World) Advance() {
 	w.Timestep++
-	log.Printf("World advanced to timestep %d", w.Timestep)
+	slog.Info("world advanced", "timestep", w.Timestep)
 }
 
 // AddEvent appends a structured event to the world's history.
