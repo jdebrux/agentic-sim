@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/jdebrux/agentic-sim/internal/world"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // AgentClient defines how the engine communicates with an external agent.
@@ -130,6 +133,8 @@ func tickOrDefault(t time.Duration, def time.Duration) time.Duration {
 
 // Run starts the simulation loop for a given duration.
 func (e *Engine) Run(ctx context.Context, duration time.Duration) {
+	tracer := otel.Tracer("simulation.engine")
+
 	ticker := time.NewTicker(e.Tick)
 	defer ticker.Stop()
 
@@ -146,6 +151,13 @@ func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 		case <-ticker.C:
 			step++
 			slog.Info("simulation tick", "step", step, "timestep", e.World.Timestep)
+
+			ctx, span := tracer.Start(ctx, "simulation.tick")
+			span.SetAttributes(
+				attribute.Int("tick.step", step),
+				attribute.Int64("world.timestep", e.World.Timestep),
+				attribute.Int("agent.count", len(e.Clients)),
+			)
 
 			actions := make([]world.AgentAction, 0, len(e.Clients))
 			for _, client := range e.Clients {
@@ -168,15 +180,26 @@ func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 			for _, action := range actions {
 				e.handleAction(ctx, action)
 			}
-			e.World.Advance()
+			e.World.Advance(ctx)
 			e.Metrics.Ticks++
+
+			span.End()
 		}
 	}
 }
 
 // handleAction applies an agent action to the world and records an event.
 func (e *Engine) handleAction(ctx context.Context, action world.AgentAction) {
-	_ = ctx
+	tracer := otel.Tracer("simulation.engine")
+	ctx, span := tracer.Start(ctx, "world.apply_action")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("action.type", string(action.Type)),
+		attribute.String("actor.id", action.ActorID),
+		attribute.String("target.id", action.TargetID),
+		attribute.String("action.location", action.Location),
+	)
 
 	event := world.Event{
 		ID:        fmt.Sprintf("evt-%d-%d", e.World.Timestep, time.Now().UnixNano()),
@@ -261,6 +284,8 @@ func (e *Engine) handleAction(ctx context.Context, action world.AgentAction) {
 	if err != nil {
 		slog.Warn("action failed", "actor", action.ActorID, "error", err)
 		event.Payload["error"] = err.Error()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "action failed")
 	} else {
 		slog.Info("action applied",
 			"tick", e.World.Timestep,

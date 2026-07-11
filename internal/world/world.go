@@ -1,8 +1,12 @@
 package world
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // AgentState holds in-memory state for an agent in the world.
@@ -61,8 +65,17 @@ func NewWorld() *World {
 	}
 }
 
-func (w *World) Advance() {
+func (w *World) Advance(ctx context.Context) {
+	tracer := otel.Tracer("world")
+	_, span := tracer.Start(ctx, "world.advance")
+	defer span.End()
+
+	before := w.Timestep
 	w.Timestep++
+	span.SetAttributes(
+		attribute.Int64("timestep.before", before),
+		attribute.Int64("timestep.after", w.Timestep),
+	)
 	slog.Info("world advanced", "timestep", w.Timestep)
 }
 

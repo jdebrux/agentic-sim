@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
 	"github.com/jdebrux/agentic-sim/internal/world"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // A2AAgentClient wraps an external A2A agent for the sim engine.
@@ -22,13 +26,27 @@ type A2AAgentClient struct {
 
 // NewA2AAgentClient connects to an external agent via its Agent Card URL.
 func NewA2AAgentClient(ctx context.Context, agentID, agentName, cardURL string) (*A2AAgentClient, error) {
+	tracer := otel.Tracer("simulation.a2a")
+	ctx, span := tracer.Start(ctx, "a2a.connect")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("agent.id", agentID),
+		attribute.String("agent.name", agentName),
+		attribute.String("agent.card_url", cardURL),
+	)
+
 	card, err := agentcard.DefaultResolver.Resolve(ctx, cardURL)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "resolve agent card")
 		return nil, fmt.Errorf("resolve agent card at %s: %w", cardURL, err)
 	}
 
 	client, err := a2aclient.NewFromCard(ctx, card)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "connect to agent")
 		return nil, fmt.Errorf("connect to agent at %s: %w", cardURL, err)
 	}
 
@@ -51,18 +69,44 @@ func (a *A2AAgentClient) GetName() string { return a.name }
 
 // Decide sends the world view as an A2A message and parses the action from the response.
 func (a *A2AAgentClient) Decide(ctx context.Context, view world.WorldView) (world.AgentAction, error) {
+	tracer := otel.Tracer("simulation.a2a")
+	ctx, span := tracer.Start(ctx, "a2a.decide")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("agent.id", a.id),
+		attribute.String("agent.name", a.name),
+		attribute.String("agent.location", view.Self.Location),
+		attribute.Int64("world.tick", view.Tick),
+	)
+
+	start := time.Now()
 	viewJSON, err := json.Marshal(view)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "marshal world view")
 		return world.AgentAction{}, fmt.Errorf("marshal world view: %w", err)
 	}
 
 	msg := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(string(viewJSON)))
 	resp, err := a.client.SendMessage(ctx, &a2a.SendMessageRequest{Message: msg})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "send message")
 		return world.AgentAction{}, fmt.Errorf("send message to agent: %w", err)
 	}
 
-	return a.parseResponse(resp)
+	span.SetAttributes(attribute.Int64("a2a.roundtrip_ms", time.Since(start).Milliseconds()))
+
+	action, err := a.parseResponse(resp)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "parse response")
+		return action, err
+	}
+
+	span.SetAttributes(attribute.String("action.type", string(action.Type)))
+	return action, nil
 }
 
 func (a *A2AAgentClient) parseResponse(resp a2a.SendMessageResult) (world.AgentAction, error) {
