@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jdebrux/agentic-sim/internal/telemetry"
 	"github.com/jdebrux/agentic-sim/internal/world"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -182,6 +183,7 @@ func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 			}
 			e.World.Advance(ctx)
 			e.Metrics.Ticks++
+			telemetry.RecordTick(ctx)
 
 			span.End()
 		}
@@ -299,6 +301,7 @@ func (e *Engine) handleAction(ctx context.Context, action world.AgentAction) {
 
 	e.World.AddEvent(event)
 	e.Metrics.Events++
+	telemetry.RecordAction(ctx, string(action.Type), action.ActorID)
 }
 
 func (e *Engine) adjustEnergy(agentID string, delta int) {

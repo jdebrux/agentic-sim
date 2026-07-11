@@ -10,6 +10,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
+	"github.com/jdebrux/agentic-sim/internal/telemetry"
 	"github.com/jdebrux/agentic-sim/internal/world"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -70,12 +71,13 @@ func (a *A2AAgentClient) GetName() string { return a.name }
 // Decide sends the world view as an A2A message and parses the action from the response.
 func (a *A2AAgentClient) Decide(ctx context.Context, view world.WorldView) (world.AgentAction, error) {
 	tracer := otel.Tracer("simulation.a2a")
-	ctx, span := tracer.Start(ctx, "a2a.decide")
+	ctx, span := tracer.Start(ctx, "agent.decide")
 	defer span.End()
 
 	span.SetAttributes(
 		attribute.String("agent.id", a.id),
 		attribute.String("agent.name", a.name),
+		attribute.String("agent.card_url", a.cardURL),
 		attribute.String("agent.location", view.Self.Location),
 		attribute.Int64("world.tick", view.Tick),
 	)
@@ -85,27 +87,40 @@ func (a *A2AAgentClient) Decide(ctx context.Context, view world.WorldView) (worl
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "marshal world view")
+		telemetry.RecordDecisionError(ctx, a.id, "marshal_world_view")
 		return world.AgentAction{}, fmt.Errorf("marshal world view: %w", err)
 	}
 
 	msg := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(string(viewJSON)))
+
+	ctx, roundtripSpan := tracer.Start(ctx, "agent.a2a_roundtrip")
 	resp, err := a.client.SendMessage(ctx, &a2a.SendMessageRequest{Message: msg})
+	roundtripSpan.End()
+	roundtrip := time.Since(start)
+
+	telemetry.RecordRoundtripLatency(ctx, a.id, roundtrip)
+	roundtripSpan.SetAttributes(
+		attribute.Int64("a2a.roundtrip_ms", roundtrip.Milliseconds()),
+		attribute.String("agent.id", a.id),
+	)
+
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "send message")
+		telemetry.RecordDecisionError(ctx, a.id, "send_message")
 		return world.AgentAction{}, fmt.Errorf("send message to agent: %w", err)
 	}
-
-	span.SetAttributes(attribute.Int64("a2a.roundtrip_ms", time.Since(start).Milliseconds()))
 
 	action, err := a.parseResponse(resp)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "parse response")
+		telemetry.RecordDecisionError(ctx, a.id, "parse_response")
 		return action, err
 	}
 
 	span.SetAttributes(attribute.String("action.type", string(action.Type)))
+	telemetry.RecordDecisionLatency(ctx, a.id, roundtrip)
 	return action, nil
 }
 

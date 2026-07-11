@@ -83,7 +83,6 @@ func setupMeter(ctx context.Context, res *resource.Resource) (func(context.Conte
 		}
 		reader = sdkmetric.NewPeriodicReader(exporter)
 	} else {
-		// No local metric output by default; metrics are dropped.
 		reader = sdkmetric.NewManualReader()
 	}
 
