@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/jdebrux/agentic-sim/internal/world"
 )
 
 // Manager tracks simulation runs by ID.
@@ -12,6 +14,14 @@ type Manager interface {
 	Start(ctx context.Context, cfg EngineConfig, duration time.Duration) (string, error)
 	Status(id string) (RunStatus, bool)
 	Metrics() ManagerMetrics
+	// Events returns the full event history recorded for a run so far.
+	Events(id string) ([]world.Event, bool)
+	// Subscribe registers a live listener for a run's events, returning the
+	// event history recorded so far and a channel for events from this point
+	// on — atomically, so no event is missed or duplicated between the two.
+	// The channel is closed once the run completes; call the returned
+	// unsubscribe func to stop listening early (e.g. on client disconnect).
+	Subscribe(id string) ([]world.Event, <-chan world.Event, func(), bool)
 }
 
 // RunStatus describes the state of a simulation run.
@@ -24,8 +34,85 @@ type RunStatus struct {
 }
 
 type runRecord struct {
-	status RunStatus
-	mu     sync.RWMutex
+	id       string
+	mu       sync.RWMutex
+	status   RunStatus
+	events   []world.Event
+	subs     map[chan world.Event]struct{}
+	finished bool
+}
+
+// addEvent records an event to the run's history and fans it out to any
+// live subscribers. Slow subscribers are dropped rather than blocking the
+// simulation tick loop.
+func (r *runRecord) addEvent(evt world.Event) {
+	r.mu.Lock()
+	r.events = append(r.events, evt)
+	subs := make([]chan world.Event, 0, len(r.subs))
+	for ch := range r.subs {
+		subs = append(subs, ch)
+	}
+	r.mu.Unlock()
+
+	for _, ch := range subs {
+		select {
+		case ch <- evt:
+		default:
+			slog.Warn("dropping event for slow SSE subscriber", "run", r.id)
+		}
+	}
+}
+
+// eventsSnapshot returns a copy of the run's event history so far.
+func (r *runRecord) eventsSnapshot() []world.Event {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]world.Event, len(r.events))
+	copy(out, r.events)
+	return out
+}
+
+// subscribe registers a new live listener and atomically returns the event
+// history recorded up to that point, so callers can replay it before
+// switching to the live channel without missing or duplicating events. If
+// the run has already finished, the returned channel is immediately closed.
+func (r *runRecord) subscribe() ([]world.Event, chan world.Event, func()) {
+	ch := make(chan world.Event, 32)
+
+	r.mu.Lock()
+	backlog := make([]world.Event, len(r.events))
+	copy(backlog, r.events)
+	if r.finished {
+		r.mu.Unlock()
+		close(ch)
+		return backlog, ch, func() {}
+	}
+	if r.subs == nil {
+		r.subs = make(map[chan world.Event]struct{})
+	}
+	r.subs[ch] = struct{}{}
+	r.mu.Unlock()
+
+	unsubscribe := func() {
+		r.mu.Lock()
+		delete(r.subs, ch)
+		r.mu.Unlock()
+	}
+	return backlog, ch, unsubscribe
+}
+
+// closeSubs closes every live subscriber channel and marks the run finished
+// so later Subscribe calls get an already-closed channel instead of hanging.
+func (r *runRecord) closeSubs() {
+	r.mu.Lock()
+	subs := r.subs
+	r.subs = nil
+	r.finished = true
+	r.mu.Unlock()
+
+	for ch := range subs {
+		close(ch)
+	}
 }
 
 // InMemoryManager is a simple manager that runs simulations in-process.
@@ -46,6 +133,7 @@ func NewInMemoryManager(factory func(cfg EngineConfig) *Engine) *InMemoryManager
 func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration time.Duration) (string, error) {
 	id := generateRunID()
 	rec := &runRecord{
+		id: id,
 		status: RunStatus{
 			ID:    id,
 			State: "running",
@@ -64,6 +152,7 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 
 	go func() {
 		engine := m.newEngine(cfg)
+		engine.OnEvent = rec.addEvent
 		engine.Clients = m.connectAgents(runCtx, cfg)
 		engine.Run(runCtx, duration)
 
@@ -79,6 +168,8 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 		rec.status.Events = m.safeEventsCount(engine)
 		rec.status.State = "completed"
 		rec.mu.Unlock()
+
+		rec.closeSubs()
 	}()
 
 	return id, nil
@@ -111,6 +202,27 @@ func (m *InMemoryManager) Status(id string) (RunStatus, bool) {
 	rec.mu.RLock()
 	defer rec.mu.RUnlock()
 	return rec.status, true
+}
+
+func (m *InMemoryManager) Events(id string) ([]world.Event, bool) {
+	m.mu.RLock()
+	rec, ok := m.runs[id]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	return rec.eventsSnapshot(), true
+}
+
+func (m *InMemoryManager) Subscribe(id string) ([]world.Event, <-chan world.Event, func(), bool) {
+	m.mu.RLock()
+	rec, ok := m.runs[id]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, nil, nil, false
+	}
+	backlog, ch, unsubscribe := rec.subscribe()
+	return backlog, ch, unsubscribe, true
 }
 
 // ManagerMetrics is a snapshot of aggregate run metrics.

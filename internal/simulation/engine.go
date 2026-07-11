@@ -39,6 +39,10 @@ type Engine struct {
 	Clients []AgentClient
 	Tick    time.Duration
 	Metrics Metrics
+	// OnEvent, if set, is invoked synchronously with every event the engine
+	// records, in tick order. Used by the Manager to fan events out to
+	// history buffers and live subscribers (e.g. the SSE stream endpoint).
+	OnEvent func(world.Event)
 }
 
 // Metrics captures basic counters for observability.
@@ -301,6 +305,9 @@ func (e *Engine) handleAction(ctx context.Context, action world.AgentAction) {
 
 	e.World.AddEvent(event)
 	e.Metrics.Events++
+	if e.OnEvent != nil {
+		e.OnEvent(event)
+	}
 	telemetry.RecordAction(ctx, string(action.Type), action.ActorID)
 }
 

@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jdebrux/agentic-sim/internal/simulation"
@@ -30,7 +32,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/health", h.health)
 	mux.HandleFunc("/.well-known/agent-card.json", h.agentCard)
 	mux.HandleFunc("/simulate", h.simulate)
-	mux.HandleFunc("/simulate/", h.simulateStatus)
+	mux.HandleFunc("/simulate/", h.simulateRoute)
 	mux.HandleFunc("/metrics", h.metrics)
 }
 
@@ -159,14 +161,30 @@ type simulateStatusResponse struct {
 	Error  string `json:"error,omitempty"`
 }
 
-func (h *Handler) simulateStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+// simulateRoute dispatches everything under /simulate/{id}[/stream|/events].
+func (h *Handler) simulateRoute(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/simulate/")
+	if path == "" {
+		http.Error(w, "missing run id", http.StatusBadRequest)
 		return
 	}
-	id := r.URL.Path[len("/simulate/"):]
-	if id == "" {
-		http.Error(w, "missing run id", http.StatusBadRequest)
+
+	id, sub, hasSub := strings.Cut(path, "/")
+	switch {
+	case !hasSub:
+		h.simulateStatus(w, r, id)
+	case sub == "stream":
+		h.simulateStream(w, r, id)
+	case sub == "events":
+		h.simulateEvents(w, r, id)
+	default:
+		http.Error(w, "not found", http.StatusNotFound)
+	}
+}
+
+func (h *Handler) simulateStatus(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -185,6 +203,81 @@ func (h *Handler) simulateStatus(w http.ResponseWriter, r *http.Request) {
 		resp.Error = status.Error
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+type simulateEventsResponse struct {
+	ID     string        `json:"id"`
+	Events []world.Event `json:"events"`
+}
+
+// simulateEvents returns the full event history recorded for a run so far,
+// for post-hoc analysis.
+func (h *Handler) simulateEvents(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	events, ok := h.Manager.Events(id)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, simulateEventsResponse{ID: id, Events: events})
+}
+
+// simulateStream streams a run's events as Server-Sent Events in real time,
+// starting with any events already recorded before the client connected.
+func (h *Handler) simulateStream(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	backlog, live, unsubscribe, ok := h.Manager.Subscribe(id)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	defer unsubscribe()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	for _, evt := range backlog {
+		writeSSEEvent(w, evt)
+	}
+	flusher.Flush()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case evt, ok := <-live:
+			if !ok {
+				return
+			}
+			writeSSEEvent(w, evt)
+			flusher.Flush()
+		}
+	}
+}
+
+func writeSSEEvent(w http.ResponseWriter, evt world.Event) {
+	data, err := json.Marshal(evt)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evt.Type, data)
 }
 
 func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {

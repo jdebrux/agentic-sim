@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jdebrux/agentic-sim/internal/simulation"
+	"github.com/jdebrux/agentic-sim/internal/world"
 )
 
 type stubManager struct {
@@ -18,6 +19,9 @@ type stubManager struct {
 
 	status  map[string]simulation.RunStatus
 	metrics simulation.ManagerMetrics
+
+	events map[string][]world.Event
+	subs   map[string]chan world.Event
 }
 
 func (s *stubManager) Start(ctx context.Context, cfg simulation.EngineConfig, duration time.Duration) (string, error) {
@@ -34,6 +38,19 @@ func (s *stubManager) Status(id string) (simulation.RunStatus, bool) {
 
 func (s *stubManager) Metrics() simulation.ManagerMetrics {
 	return s.metrics
+}
+
+func (s *stubManager) Events(id string) ([]world.Event, bool) {
+	events, ok := s.events[id]
+	return events, ok
+}
+
+func (s *stubManager) Subscribe(id string) ([]world.Event, <-chan world.Event, func(), bool) {
+	ch, ok := s.subs[id]
+	if !ok {
+		return nil, nil, nil, false
+	}
+	return s.events[id], ch, func() {}, true
 }
 
 func newTestHandler(m simulation.Manager) *Handler {
@@ -246,6 +263,92 @@ func TestMetrics_MethodNotAllowed(t *testing.T) {
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", rec.Code)
+	}
+}
+
+func TestSimulateEvents(t *testing.T) {
+	m := &stubManager{
+		events: map[string][]world.Event{
+			"run-1": {{ID: "evt-1", Type: "speak", ActorID: "alice"}},
+		},
+	}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/simulate/run-1/events", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"id":"evt-1"`)) {
+		t.Fatalf("expected event in body, got %s", rec.Body.String())
+	}
+}
+
+func TestSimulateEvents_NotFound(t *testing.T) {
+	m := &stubManager{events: map[string][]world.Event{}}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/simulate/missing/events", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestSimulateStream(t *testing.T) {
+	ch := make(chan world.Event, 4)
+	m := &stubManager{
+		events: map[string][]world.Event{
+			"run-1": {{ID: "evt-0", Type: "idle", ActorID: "alice"}},
+		},
+		subs: map[string]chan world.Event{"run-1": ch},
+	}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	ch <- world.Event{ID: "evt-1", Type: "speak", ActorID: "alice"}
+	close(ch)
+
+	req := httptest.NewRequest(http.MethodGet, "/simulate/run-1/stream", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("expected text/event-stream content type, got %s", ct)
+	}
+	body := rec.Body.String()
+	if !bytes.Contains([]byte(body), []byte(`"id":"evt-0"`)) {
+		t.Fatalf("expected backlog event in stream, got %s", body)
+	}
+	if !bytes.Contains([]byte(body), []byte(`"id":"evt-1"`)) {
+		t.Fatalf("expected live event in stream, got %s", body)
+	}
+}
+
+func TestSimulateStream_NotFound(t *testing.T) {
+	m := &stubManager{subs: map[string]chan world.Event{}}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/simulate/missing/stream", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
 	}
 }
 
