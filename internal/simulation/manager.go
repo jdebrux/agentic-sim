@@ -2,7 +2,6 @@ package simulation
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 	"time"
 )
