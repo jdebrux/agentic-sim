@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -59,6 +60,7 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 
 	go func() {
 		engine := m.newEngine(cfg)
+		engine.Clients = m.connectAgents(ctx, cfg)
 		engine.Run(ctx, duration)
 
 		m.mu.Lock()
@@ -76,6 +78,23 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 	}()
 
 	return id, nil
+}
+
+func (m *InMemoryManager) connectAgents(ctx context.Context, cfg EngineConfig) []AgentClient {
+	clients := make([]AgentClient, 0, len(cfg.Agents))
+	for _, a := range cfg.Agents {
+		if a.AgentCardURL == "" {
+			slog.Warn("agent has no card URL, skipping connection", "agent", a.ID)
+			continue
+		}
+		client, err := NewA2AAgentClient(ctx, a.ID, a.Name, a.AgentCardURL)
+		if err != nil {
+			slog.Error("failed to connect to external agent", "agent", a.ID, "error", err)
+			continue
+		}
+		clients = append(clients, client)
+	}
+	return clients
 }
 
 func (m *InMemoryManager) Status(id string) (RunStatus, bool) {
