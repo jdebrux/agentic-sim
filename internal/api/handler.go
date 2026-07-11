@@ -25,6 +25,7 @@ func NewHandler(m simulation.Manager, defaultTick time.Duration) *Handler {
 // Register attaches endpoints to a mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/health", h.health)
+	mux.HandleFunc("/.well-known/agent-card", h.agentCard)
 	mux.HandleFunc("/simulate", h.simulate)
 	mux.HandleFunc("/simulate/", h.simulateStatus)
 	mux.HandleFunc("/metrics", h.metrics)
