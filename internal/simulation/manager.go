@@ -58,10 +58,14 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 	m.metrics.Running++
 	m.mu.Unlock()
 
+	// Detach from the request's cancellation so the run survives the HTTP
+	// handler returning, while keeping trace context for span correlation.
+	runCtx := context.WithoutCancel(ctx)
+
 	go func() {
 		engine := m.newEngine(cfg)
-		engine.Clients = m.connectAgents(ctx, cfg)
-		engine.Run(ctx, duration)
+		engine.Clients = m.connectAgents(runCtx, cfg)
+		engine.Run(runCtx, duration)
 
 		m.mu.Lock()
 		m.metrics.Running--
