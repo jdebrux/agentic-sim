@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
@@ -9,11 +10,26 @@ import (
 	"github.com/jdebrux/agentic-sim/internal/api"
 	"github.com/jdebrux/agentic-sim/internal/config"
 	"github.com/jdebrux/agentic-sim/internal/simulation"
+	"github.com/jdebrux/agentic-sim/internal/telemetry"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
+	ctx := context.Background()
+
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	slog.Info("starting agentic simulation environment")
+
+	shutdown, err := telemetry.Setup(ctx, "agentic-sim")
+	if err != nil {
+		slog.Error("failed to setup telemetry", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := shutdown(ctx); err != nil {
+			slog.Error("telemetry shutdown error", "error", err)
+		}
+	}()
 
 	appCfg, err := config.Load()
 	if err != nil {
@@ -33,7 +49,7 @@ func main() {
 
 	addr := getAddr(appCfg.HTTPPort)
 	slog.Info("listening", "addr", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, otelhttp.NewHandler(mux, "agentic-sim")); err != nil {
 		slog.Error("server error", "error", err)
 		os.Exit(1)
 	}
