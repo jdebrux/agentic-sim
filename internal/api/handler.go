@@ -18,12 +18,14 @@ import (
 type Handler struct {
 	Manager     simulation.Manager
 	DefaultTick time.Duration
+	StartedAt   time.Time
 }
 
 func NewHandler(m simulation.Manager, defaultTick time.Duration) *Handler {
 	return &Handler{
 		Manager:     m,
 		DefaultTick: defaultTick,
+		StartedAt:   time.Now(),
 	}
 }
 
@@ -36,8 +38,18 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/metrics", h.metrics)
 }
 
+type healthResponse struct {
+	Status         string  `json:"status"`
+	UptimeSeconds  float64 `json:"uptime_seconds"`
+	ActiveRunCount int64   `json:"active_run_count"`
+}
+
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+	writeJSON(w, http.StatusOK, healthResponse{
+		Status:         "ok",
+		UptimeSeconds:  time.Since(h.StartedAt).Seconds(),
+		ActiveRunCount: h.Manager.Metrics().Running,
+	})
 }
 
 type agentDefinition struct {
@@ -172,7 +184,7 @@ func (h *Handler) simulateRoute(w http.ResponseWriter, r *http.Request) {
 	id, sub, hasSub := strings.Cut(path, "/")
 	switch {
 	case !hasSub:
-		h.simulateStatus(w, r, id)
+		h.simulateByID(w, r, id)
 	case sub == "stream":
 		h.simulateStream(w, r, id)
 	case sub == "events":
@@ -182,12 +194,20 @@ func (h *Handler) simulateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) simulateStatus(w http.ResponseWriter, r *http.Request, id string) {
-	if r.Method != http.MethodGet {
+// simulateByID handles the bare /simulate/{id} route: GET for status, DELETE
+// to stop and forget the run.
+func (h *Handler) simulateByID(w http.ResponseWriter, r *http.Request, id string) {
+	switch r.Method {
+	case http.MethodGet:
+		h.simulateStatus(w, r, id)
+	case http.MethodDelete:
+		h.simulateDelete(w, r, id)
+	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
+}
 
+func (h *Handler) simulateStatus(w http.ResponseWriter, r *http.Request, id string) {
 	status, ok := h.Manager.Status(id)
 	if !ok {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -203,6 +223,16 @@ func (h *Handler) simulateStatus(w http.ResponseWriter, r *http.Request, id stri
 		resp.Error = status.Error
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// simulateDelete stops (if still running) and forgets a run, freeing its
+// history and subscribers.
+func (h *Handler) simulateDelete(w http.ResponseWriter, r *http.Request, id string) {
+	if ok := h.Manager.Delete(id); !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type simulateEventsResponse struct {

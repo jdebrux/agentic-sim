@@ -101,3 +101,84 @@ func TestManagerSubscribeUnknownRun(t *testing.T) {
 		t.Fatalf("expected Events to report not found")
 	}
 }
+
+// TestManagerDeleteCancelsRunningEngine verifies Delete both forgets the run
+// immediately and cancels its context, so the engine's goroutine stops well
+// before its full requested duration would otherwise elapse.
+func TestManagerDeleteCancelsRunningEngine(t *testing.T) {
+	factory := func(cfg EngineConfig) *Engine {
+		return &Engine{World: world.NewWorld(), Tick: cfg.Tick}
+	}
+	m := NewInMemoryManager(factory)
+
+	id, err := m.Start(context.Background(), EngineConfig{Tick: 2 * time.Millisecond}, 5*time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error starting run: %v", err)
+	}
+	if _, ok := m.Status(id); !ok {
+		t.Fatalf("expected run %s to be tracked immediately after Start", id)
+	}
+
+	if ok := m.Delete(id); !ok {
+		t.Fatalf("expected delete to find run %s", id)
+	}
+	if _, ok := m.Status(id); ok {
+		t.Fatalf("expected run %s to be forgotten after delete", id)
+	}
+
+	// The run's 5s duration would make Shutdown block for that long if
+	// cancellation didn't take effect; a short timeout here proves it did.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	if err := m.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("expected deleted run's engine to stop promptly, got: %v", err)
+	}
+}
+
+// TestManagerDeleteUnknownRun verifies Delete reports false for an id that
+// was never started.
+func TestManagerDeleteUnknownRun(t *testing.T) {
+	m := NewInMemoryManager(func(cfg EngineConfig) *Engine { return &Engine{World: world.NewWorld()} })
+
+	if ok := m.Delete("missing"); ok {
+		t.Fatalf("expected delete to report not found")
+	}
+}
+
+// TestManagerShutdownDrainsCompletedRuns verifies Shutdown returns nil once a
+// naturally-completing run finishes, without needing Delete or a timeout.
+func TestManagerShutdownDrainsCompletedRuns(t *testing.T) {
+	factory := func(cfg EngineConfig) *Engine {
+		return &Engine{World: world.NewWorld(), Tick: cfg.Tick}
+	}
+	m := NewInMemoryManager(factory)
+
+	if _, err := m.Start(context.Background(), EngineConfig{Tick: 2 * time.Millisecond}, 10*time.Millisecond); err != nil {
+		t.Fatalf("unexpected error starting run: %v", err)
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := m.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("expected short-lived run to drain naturally, got: %v", err)
+	}
+}
+
+// TestManagerShutdownTimesOutOnLongRun verifies Shutdown reports the
+// context's error if a run outlives the caller's patience.
+func TestManagerShutdownTimesOutOnLongRun(t *testing.T) {
+	factory := func(cfg EngineConfig) *Engine {
+		return &Engine{World: world.NewWorld(), Tick: cfg.Tick}
+	}
+	m := NewInMemoryManager(factory)
+
+	if _, err := m.Start(context.Background(), EngineConfig{Tick: 2 * time.Millisecond}, 5*time.Second); err != nil {
+		t.Fatalf("unexpected error starting run: %v", err)
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := m.Shutdown(shutdownCtx); err == nil {
+		t.Fatalf("expected Shutdown to time out waiting for a 5s run")
+	}
+}

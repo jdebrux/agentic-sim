@@ -22,6 +22,15 @@ type Manager interface {
 	// The channel is closed once the run completes; call the returned
 	// unsubscribe func to stop listening early (e.g. on client disconnect).
 	Subscribe(id string) ([]world.Event, <-chan world.Event, func(), bool)
+	// Delete forgets a run, freeing its history and subscribers. If the run
+	// is still active, its engine is signaled to stop as soon as possible;
+	// the underlying goroutine finishes asynchronously. Reports false if the
+	// run id is unknown.
+	Delete(id string) bool
+	// Shutdown blocks until every active run has finished, or ctx is done —
+	// whichever comes first. Used to drain in-flight runs during a graceful
+	// shutdown without forcibly cancelling them.
+	Shutdown(ctx context.Context) error
 }
 
 // RunStatus describes the state of a simulation run.
@@ -35,6 +44,7 @@ type RunStatus struct {
 
 type runRecord struct {
 	id       string
+	cancel   context.CancelFunc
 	mu       sync.RWMutex
 	status   RunStatus
 	events   []world.Event
@@ -121,6 +131,7 @@ type InMemoryManager struct {
 	runs      map[string]*runRecord
 	mu        sync.RWMutex
 	metrics   ManagerMetrics
+	wg        sync.WaitGroup
 }
 
 func NewInMemoryManager(factory func(cfg EngineConfig) *Engine) *InMemoryManager {
@@ -132,8 +143,16 @@ func NewInMemoryManager(factory func(cfg EngineConfig) *Engine) *InMemoryManager
 
 func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration time.Duration) (string, error) {
 	id := generateRunID()
+
+	// Detach from the request's cancellation so the run survives the HTTP
+	// handler returning, while keeping trace context for span correlation.
+	// A cancel func is kept so Delete can still stop the run early, and
+	// Shutdown can drain it, independent of the originating request.
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+
 	rec := &runRecord{
-		id: id,
+		id:     id,
+		cancel: cancel,
 		status: RunStatus{
 			ID:    id,
 			State: "running",
@@ -146,11 +165,11 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 	m.metrics.Running++
 	m.mu.Unlock()
 
-	// Detach from the request's cancellation so the run survives the HTTP
-	// handler returning, while keeping trace context for span correlation.
-	runCtx := context.WithoutCancel(ctx)
-
+	m.wg.Add(1)
 	go func() {
+		defer m.wg.Done()
+		defer cancel()
+
 		engine := m.newEngine(cfg)
 		engine.OnEvent = rec.addEvent
 		engine.Clients = m.connectAgents(runCtx, cfg)
@@ -173,6 +192,42 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 	}()
 
 	return id, nil
+}
+
+// Delete removes a run's record, freeing its history and subscribers. If the
+// run is still active, cancelling its context signals the engine's tick loop
+// to stop at the next select; the goroutine's own cleanup still runs
+// asynchronously against the now-detached record.
+func (m *InMemoryManager) Delete(id string) bool {
+	m.mu.Lock()
+	rec, ok := m.runs[id]
+	if ok {
+		delete(m.runs, id)
+	}
+	m.mu.Unlock()
+	if !ok {
+		return false
+	}
+
+	rec.cancel()
+	return true
+}
+
+// Shutdown blocks until every run started so far has finished, or ctx is
+// done, whichever happens first.
+func (m *InMemoryManager) Shutdown(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (m *InMemoryManager) connectAgents(ctx context.Context, cfg EngineConfig) []AgentClient {

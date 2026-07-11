@@ -22,6 +22,10 @@ type stubManager struct {
 
 	events map[string][]world.Event
 	subs   map[string]chan world.Event
+
+	deletable   map[string]bool
+	deletedIDs  []string
+	shutdownErr error
 }
 
 func (s *stubManager) Start(ctx context.Context, cfg simulation.EngineConfig, duration time.Duration) (string, error) {
@@ -53,12 +57,25 @@ func (s *stubManager) Subscribe(id string) ([]world.Event, <-chan world.Event, f
 	return s.events[id], ch, func() {}, true
 }
 
+func (s *stubManager) Delete(id string) bool {
+	ok := s.deletable[id]
+	if ok {
+		s.deletedIDs = append(s.deletedIDs, id)
+	}
+	return ok
+}
+
+func (s *stubManager) Shutdown(ctx context.Context) error {
+	_ = ctx
+	return s.shutdownErr
+}
+
 func newTestHandler(m simulation.Manager) *Handler {
 	return NewHandler(m, time.Second)
 }
 
 func TestHealth(t *testing.T) {
-	m := &stubManager{}
+	m := &stubManager{metrics: simulation.ManagerMetrics{Running: 3}}
 	h := newTestHandler(m)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -73,6 +90,12 @@ func TestHealth(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"status":"ok"`)) {
 		t.Fatalf("expected status ok in body, got %s", rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"active_run_count":3`)) {
+		t.Fatalf("expected active_run_count in body, got %s", rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"uptime_seconds"`)) {
+		t.Fatalf("expected uptime_seconds in body, got %s", rec.Body.String())
 	}
 }
 
@@ -219,6 +242,41 @@ func TestSimulateStatus_MethodNotAllowed(t *testing.T) {
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", rec.Code)
+	}
+}
+
+func TestSimulateDelete(t *testing.T) {
+	m := &stubManager{deletable: map[string]bool{"run-1": true}}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodDelete, "/simulate/run-1", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", rec.Code)
+	}
+	if len(m.deletedIDs) != 1 || m.deletedIDs[0] != "run-1" {
+		t.Fatalf("expected run-1 to be deleted, got %v", m.deletedIDs)
+	}
+}
+
+func TestSimulateDelete_NotFound(t *testing.T) {
+	m := &stubManager{deletable: map[string]bool{}}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodDelete, "/simulate/missing", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
 	}
 }
 
