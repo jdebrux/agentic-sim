@@ -255,7 +255,7 @@ func TestAgentCard(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/.well-known/agent-card", nil)
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/agent-card.json", nil)
 	req.Host = "localhost:8080"
 	rec := httptest.NewRecorder()
 
@@ -278,7 +278,7 @@ func TestAgentCard_MethodNotAllowed(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodPost, "/.well-known/agent-card", nil)
+	req := httptest.NewRequest(http.MethodPost, "/.well-known/agent-card.json", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
