@@ -1,0 +1,45 @@
+services:
+  simserver:
+    build: .
+    ports:
+      - "8080:8080"
+
+  adk-agent:
+    build: ./examples/adk-agent
+    ports:
+      - "9001:9001"
+    environment:
+      - AGENT_NAME=adk_agent
+      - MODEL=${ADK_MODEL:-gpt-4o}
+      - HOST=adk-agent
+      - PORT=9001
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+  langgraph-agent:
+    build: ./examples/langgraph-agent
+    ports:
+      - "9002:9002"
+    environment:
+      - AGENT_NAME=langgraph-agent
+      - MODEL=${LANGGRAPH_MODEL:-gpt-4o}
+      - HOST=langgraph-agent
+      - PORT=9002
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+# Start everything:
+#   docker compose up -d
+#
+# Run a simulation with both agents (container-network hostnames, not localhost):
+#   curl -X POST localhost:8080/simulate -d '{
+#     "duration_ms": 30000, "tick_ms": 1000,
+#     "agents": [
+#       {"id": "alice", "name": "Alice", "location": "loc_default",
+#        "traits": {"friendliness": 7, "curiosity": 3},
+#        "goals": ["explore", "trade"], "energy": 100, "credits": 10,
+#        "agent_card_url": "http://adk-agent:9001"},
+#       {"id": "bob", "name": "Bob", "location": "loc_default",
+#        "traits": {"friendliness": 4, "curiosity": 8},
+#        "goals": ["gather_info"], "energy": 100, "credits": 5,
+#        "agent_card_url": "http://langgraph-agent:9002"}
+#     ]
+#   }'
