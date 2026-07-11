@@ -267,8 +267,8 @@ func TestAgentCard(t *testing.T) {
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"name":"agentic-sim"`)) {
 		t.Fatalf("expected agentic-sim name in body, got %s", rec.Body.String())
 	}
-	if !bytes.Contains(rec.Body.Bytes(), []byte(`"supportedInterfaces"`)) {
-		t.Fatalf("expected supportedInterfaces in body, got %s", rec.Body.String())
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"preferredTransport":"JSONRPC"`)) {
+		t.Fatalf("expected preferredTransport in body, got %s", rec.Body.String())
 	}
 }
 

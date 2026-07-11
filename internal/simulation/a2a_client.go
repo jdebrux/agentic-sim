@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/a2aproject/a2a-go/v2/a2aclient"
-	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
+	"github.com/a2aproject/a2a-go/a2a"
+	"github.com/a2aproject/a2a-go/a2aclient"
+	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
 	"github.com/jdebrux/agentic-sim/internal/telemetry"
 	"github.com/jdebrux/agentic-sim/internal/world"
 	"go.opentelemetry.io/otel"
@@ -91,10 +91,10 @@ func (a *A2AAgentClient) Decide(ctx context.Context, view world.WorldView) (worl
 		return world.AgentAction{}, fmt.Errorf("marshal world view: %w", err)
 	}
 
-	msg := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(string(viewJSON)))
+	msg := a2a.NewMessage(a2a.MessageRoleUser, a2a.TextPart{Text: string(viewJSON)})
 
 	ctx, roundtripSpan := tracer.Start(ctx, "agent.a2a_roundtrip")
-	resp, err := a.client.SendMessage(ctx, &a2a.SendMessageRequest{Message: msg})
+	resp, err := a.client.SendMessage(ctx, &a2a.MessageSendParams{Message: msg})
 	roundtripSpan.End()
 	roundtrip := time.Since(start)
 
@@ -171,7 +171,7 @@ func (a *A2AAgentClient) parseMessageResponse(msg *a2a.Message) (world.AgentActi
 	return a.parseArtifactPart(msg.Parts[0])
 }
 
-func (a *A2AAgentClient) parseArtifactPart(part *a2a.Part) (world.AgentAction, error) {
+func (a *A2AAgentClient) parseArtifactPart(part a2a.Part) (world.AgentAction, error) {
 	if part == nil {
 		return world.AgentAction{
 			ActorID: a.id,
@@ -180,7 +180,16 @@ func (a *A2AAgentClient) parseArtifactPart(part *a2a.Part) (world.AgentAction, e
 		}, nil
 	}
 
-	text := part.Text()
+	textPart, ok := part.(a2a.TextPart)
+	if !ok {
+		return world.AgentAction{
+			ActorID: a.id,
+			Type:    world.ActionIdle,
+			Reason:  "non-text response from agent",
+		}, nil
+	}
+
+	text := textPart.Text
 	if text == "" {
 		return world.AgentAction{
 			ActorID: a.id,

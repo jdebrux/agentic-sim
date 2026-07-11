@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/a2a"
 	"github.com/jdebrux/agentic-sim/internal/world"
 )
 
@@ -55,13 +55,13 @@ func (h *Handler) agentCard(w http.ResponseWriter, r *http.Request) {
 		Name:               card.Name,
 		Description:        card.Description,
 		Version:            card.Version,
+		URL:                card.URL,
+		PreferredTransport: a2a.TransportProtocolJSONRPC,
+		ProtocolVersion:    string(a2a.Version),
 		DefaultInputModes:  card.DefaultInputModes,
 		DefaultOutputModes: card.DefaultOutputModes,
 		Capabilities: a2a.AgentCapabilities{
 			Streaming: card.Capabilities.Streaming,
-		},
-		SupportedInterfaces: []*a2a.AgentInterface{
-			a2a.NewAgentInterface(card.URL, a2a.TransportProtocolJSONRPC),
 		},
 		Skills: make([]a2a.AgentSkill, len(card.Skills)),
 	}
