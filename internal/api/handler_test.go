@@ -14,6 +14,7 @@ import (
 type stubManager struct {
 	startID  string
 	startErr error
+	lastCfg  simulation.EngineConfig
 
 	status  map[string]simulation.RunStatus
 	metrics simulation.ManagerMetrics
@@ -22,6 +23,7 @@ type stubManager struct {
 func (s *stubManager) Start(ctx context.Context, cfg simulation.EngineConfig, duration time.Duration) (string, error) {
 	_ = ctx
 	_ = duration
+	s.lastCfg = cfg
 	return s.startID, s.startErr
 }
 
@@ -74,6 +76,49 @@ func TestSimulate_StartsRun(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"id":"run-1"`)) {
 		t.Fatalf("expected run id in response, got %s", rec.Body.String())
+	}
+	if m.lastCfg.Tick != 5*time.Millisecond {
+		t.Fatalf("expected tick 5ms, got %v", m.lastCfg.Tick)
+	}
+}
+
+func TestSimulate_CustomAgentsAndLocations(t *testing.T) {
+	m := &stubManager{startID: "run-1"}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := []byte(`{
+		"duration_ms": 100,
+		"tick_ms": 10,
+		"agents": [
+			{"id": "alice", "name": "Alice", "location": "plaza", "traits": {"friendliness": 7, "curiosity": 3}, "goals": ["trade"], "energy": 80, "credits": 20}
+		],
+		"locations": [
+			{"id": "plaza", "name": "Central Plaza"},
+			{"id": "market", "name": "Marketplace"}
+		]
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/simulate", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if len(m.lastCfg.Agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(m.lastCfg.Agents))
+	}
+	alice := m.lastCfg.Agents[0]
+	if alice.ID != "alice" || alice.Name != "Alice" || alice.Location != "plaza" {
+		t.Fatalf("expected alice at plaza, got %+v", alice)
+	}
+	if len(m.lastCfg.Locations) != 2 {
+		t.Fatalf("expected 2 locations, got %d", len(m.lastCfg.Locations))
+	}
+	if m.lastCfg.Locations[0].ID != "plaza" || m.lastCfg.Locations[1].ID != "market" {
+		t.Fatalf("expected plaza and market, got %+v", m.lastCfg.Locations)
 	}
 }
 
