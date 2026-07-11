@@ -33,3 +33,8 @@ go.work.sum
 
 # Cache files and directories
 .cache/
+
+# Python (examples/)
+__pycache__/
+*.pyc
+.venv/
