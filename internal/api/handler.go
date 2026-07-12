@@ -71,10 +71,11 @@ type locationDefinition struct {
 }
 
 type simulateRequest struct {
-	DurationMs int64                `json:"duration_ms"`
-	TickMs     int64                `json:"tick_ms"`
-	Agents     []agentDefinition    `json:"agents,omitempty"`
-	Locations  []locationDefinition `json:"locations,omitempty"`
+	DurationMs        int64                `json:"duration_ms"`
+	TickMs            int64                `json:"tick_ms"`
+	DecisionTimeoutMs int64                `json:"decision_timeout_ms,omitempty"`
+	Agents            []agentDefinition    `json:"agents,omitempty"`
+	Locations         []locationDefinition `json:"locations,omitempty"`
 }
 
 type simulateResponse struct {
@@ -118,12 +119,19 @@ func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "tick_ms must be less than duration_ms", http.StatusBadRequest)
 		return
 	}
+	if req.DecisionTimeoutMs < 0 {
+		http.Error(w, "decision_timeout_ms must be >= 0", http.StatusBadRequest)
+		return
+	}
 
 	cfg := simulation.EngineConfig{
 		Tick: h.DefaultTick,
 	}
 	if req.TickMs > 0 {
 		cfg.Tick = time.Duration(req.TickMs) * time.Millisecond
+	}
+	if req.DecisionTimeoutMs > 0 {
+		cfg.DecisionTimeout = time.Duration(req.DecisionTimeoutMs) * time.Millisecond
 	}
 	if len(req.Agents) > 0 {
 		cfg.Agents = make([]simulation.AgentRegistration, len(req.Agents))

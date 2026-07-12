@@ -105,7 +105,7 @@ func TestSimulate_StartsRun(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	body := []byte(`{"duration_ms":10,"tick_ms":5}`)
+	body := []byte(`{"duration_ms":10,"tick_ms":5,"decision_timeout_ms":3}`)
 	req := httptest.NewRequest(http.MethodPost, "/simulate", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 
@@ -119,6 +119,9 @@ func TestSimulate_StartsRun(t *testing.T) {
 	}
 	if m.lastCfg.Tick != 5*time.Millisecond {
 		t.Fatalf("expected tick 5ms, got %v", m.lastCfg.Tick)
+	}
+	if m.lastCfg.DecisionTimeout != 3*time.Millisecond {
+		t.Fatalf("expected decision timeout 3ms, got %v", m.lastCfg.DecisionTimeout)
 	}
 }
 
@@ -171,6 +174,7 @@ func TestSimulate_ValidationErrors(t *testing.T) {
 		{"missing duration", `{"duration_ms":0}`, http.StatusBadRequest},
 		{"negative tick", `{"duration_ms":10,"tick_ms":-1}`, http.StatusBadRequest},
 		{"tick too large", `{"duration_ms":10,"tick_ms":10}`, http.StatusBadRequest},
+		{"negative decision timeout", `{"duration_ms":10,"decision_timeout_ms":-1}`, http.StatusBadRequest},
 		{"malformed json", `{"duration_ms":10,`, http.StatusBadRequest},
 	}
 	for _, tt := range tests {

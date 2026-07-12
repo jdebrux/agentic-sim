@@ -109,6 +109,8 @@ Useful for exercising the API/engine on its own, but a run with no reachable age
 
 An agent only actually participates (gets asked to decide each tick) if `agent_card_url` points at a reachable A2A server. Agents without one are seeded into the world but never act.
 
+Each tick, every agent's `Decide` call runs concurrently and is bounded by `decision_timeout_ms` (default: the tick duration itself, so no agent can outlast its own tick). An agent that errors or blows past its timeout degrades to `idle` for that tick — it never stalls the others or the run as a whole.
+
 ### World rules
 
 | Action | Effect | Energy | Constraints |

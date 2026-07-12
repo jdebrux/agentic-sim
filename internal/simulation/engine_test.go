@@ -23,6 +23,25 @@ func (m mockAgent) Decide(ctx context.Context, view world.WorldView) (world.Agen
 	return m.action, nil
 }
 
+// slowAgent blocks for delay (or until ctx is cancelled, whichever comes
+// first) before deciding, so tests can simulate a hung or slow external agent.
+type slowAgent struct {
+	id    string
+	name  string
+	delay time.Duration
+}
+
+func (s slowAgent) GetID() string   { return s.id }
+func (s slowAgent) GetName() string { return s.name }
+func (s slowAgent) Decide(ctx context.Context, view world.WorldView) (world.AgentAction, error) {
+	select {
+	case <-time.After(s.delay):
+		return world.AgentAction{ActorID: s.id, Type: world.ActionSpeak, Message: "finally"}, nil
+	case <-ctx.Done():
+		return world.AgentAction{}, ctx.Err()
+	}
+}
+
 // TestEngineHandleAction covers action application and event recording.
 func TestEngineHandleAction(t *testing.T) {
 	t.Run("applies move action", func(t *testing.T) {
@@ -266,5 +285,80 @@ func TestEngineRunCoversLoop(t *testing.T) {
 	}
 	if got := w.Agents[moveAgent.id].Location; got != "loc_target" {
 		t.Fatalf("expected mover to reach loc_target, got %s", got)
+	}
+}
+
+// TestEngineDecideActionsTimesOutSlowAgent verifies a hung agent degrades to
+// idle instead of blocking the tick, and doesn't affect other agents' actions.
+func TestEngineDecideActionsTimesOutSlowAgent(t *testing.T) {
+	w := world.NewWorld()
+	w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "Slow", Location: "loc_default"}
+	w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "Fast", Location: "loc_default"}
+
+	slow := slowAgent{id: "agent-1", name: "Slow", delay: time.Hour}
+	fast := mockAgent{
+		id:   "agent-2",
+		name: "Fast",
+		action: world.AgentAction{
+			ActorID: "agent-2",
+			Type:    world.ActionSpeak,
+			Message: "hi",
+		},
+	}
+
+	engine := &Engine{
+		World:           w,
+		Clients:         []AgentClient{slow, fast},
+		Tick:            time.Second,
+		DecisionTimeout: 20 * time.Millisecond,
+	}
+
+	start := time.Now()
+	actions := engine.decideActions(context.Background())
+	elapsed := time.Since(start)
+
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("expected decideActions to bound the slow agent's delay, took %s", elapsed)
+	}
+	if actions[0].Type != world.ActionIdle {
+		t.Fatalf("expected slow agent to degrade to idle, got %s", actions[0].Type)
+	}
+	if actions[0].Reason != "decision timed out" {
+		t.Fatalf("expected timeout reason, got %q", actions[0].Reason)
+	}
+	if actions[1].Type != world.ActionSpeak {
+		t.Fatalf("expected fast agent's action to be unaffected, got %s", actions[1].Type)
+	}
+}
+
+// TestEngineDecideActionsRunsInParallel verifies agents are asked to decide
+// concurrently rather than one after another.
+func TestEngineDecideActionsRunsInParallel(t *testing.T) {
+	w := world.NewWorld()
+	w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default"}
+	w.Agents["agent-2"] = &world.AgentState{ID: "agent-2", Name: "B", Location: "loc_default"}
+
+	delay := 60 * time.Millisecond
+	a1 := slowAgent{id: "agent-1", name: "A", delay: delay}
+	a2 := slowAgent{id: "agent-2", name: "B", delay: delay}
+
+	engine := &Engine{
+		World:           w,
+		Clients:         []AgentClient{a1, a2},
+		Tick:            time.Second,
+		DecisionTimeout: time.Second,
+	}
+
+	start := time.Now()
+	actions := engine.decideActions(context.Background())
+	elapsed := time.Since(start)
+
+	if elapsed > 150*time.Millisecond {
+		t.Fatalf("expected concurrent decisions to take ~%s, took %s (looks sequential)", delay, elapsed)
+	}
+	for _, a := range actions {
+		if a.Type != world.ActionSpeak {
+			t.Fatalf("expected speak action from slow agent, got %s", a.Type)
+		}
 	}
 }

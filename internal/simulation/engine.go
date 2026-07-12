@@ -2,8 +2,10 @@ package simulation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jdebrux/agentic-sim/internal/telemetry"
@@ -39,6 +41,11 @@ type Engine struct {
 	Clients []AgentClient
 	Tick    time.Duration
 	Metrics Metrics
+	// DecisionTimeout bounds how long a single agent's Decide call may run
+	// before the engine gives up on it and substitutes idle. Defaults to
+	// Tick when zero, so one slow or hung agent can delay a tick but never
+	// stalls the simulation indefinitely.
+	DecisionTimeout time.Duration
 	// OnEvent, if set, is invoked synchronously with every event the engine
 	// records, in tick order. Used by the Manager to fan events out to
 	// history buffers and live subscribers (e.g. the SSE stream endpoint).
@@ -53,9 +60,10 @@ type Metrics struct {
 
 // EngineConfig toggles engine behavior.
 type EngineConfig struct {
-	Tick      time.Duration
-	Agents    []AgentRegistration
-	Locations []world.Location
+	Tick            time.Duration
+	DecisionTimeout time.Duration
+	Agents          []AgentRegistration
+	Locations       []world.Location
 }
 
 // NewEngine initializes a new simulation engine with defaults.
@@ -93,8 +101,9 @@ func NewEngineWithConfig(cfg EngineConfig) *Engine {
 	}
 
 	return &Engine{
-		World: w,
-		Tick:  tickOrDefault(cfg.Tick, 1*time.Second),
+		World:           w,
+		Tick:            tickOrDefault(cfg.Tick, 1*time.Second),
+		DecisionTimeout: cfg.DecisionTimeout,
 	}
 }
 
@@ -163,23 +172,7 @@ func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 				attribute.Int("agent.count", len(e.Clients)),
 			)
 
-			actions := make([]world.AgentAction, 0, len(e.Clients))
-			for _, client := range e.Clients {
-				view := world.NewWorldView(e.World, client.GetID(), 10)
-				action, err := client.Decide(ctx, view)
-				if err != nil {
-					slog.Warn("agent decision failed",
-						"agent", client.GetID(),
-						"error", err,
-					)
-					action = world.AgentAction{
-						ActorID: client.GetID(),
-						Type:    world.ActionIdle,
-						Reason:  "decision error",
-					}
-				}
-				actions = append(actions, action)
-			}
+			actions := e.decideActions(ctx)
 
 			for _, action := range actions {
 				e.handleAction(ctx, action)
@@ -191,6 +184,60 @@ func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 			span.End()
 		}
 	}
+}
+
+// decideActions asks every client to decide its action concurrently, each
+// bounded by decisionTimeout, and returns the results in client order so
+// action application stays deterministic. All clients decide off the same
+// pre-tick world snapshot, since no writes happen until after this returns.
+func (e *Engine) decideActions(ctx context.Context) []world.AgentAction {
+	actions := make([]world.AgentAction, len(e.Clients))
+
+	var wg sync.WaitGroup
+	wg.Add(len(e.Clients))
+	for i, client := range e.Clients {
+		go func(i int, client AgentClient) {
+			defer wg.Done()
+			actions[i] = e.decideOne(ctx, client)
+		}(i, client)
+	}
+	wg.Wait()
+
+	return actions
+}
+
+// decideOne runs a single client's Decide call under decisionTimeout,
+// degrading to idle if it errors or times out so one bad agent never stalls
+// the tick loop.
+func (e *Engine) decideOne(ctx context.Context, client AgentClient) world.AgentAction {
+	view := world.NewWorldView(e.World, client.GetID(), 10)
+
+	decideCtx, cancel := context.WithTimeout(ctx, e.decisionTimeout())
+	defer cancel()
+
+	action, err := client.Decide(decideCtx, view)
+	if err != nil {
+		reason := "decision error"
+		if errors.Is(err, context.DeadlineExceeded) {
+			reason = "decision timed out"
+		}
+		slog.Warn("agent decision failed",
+			"agent", client.GetID(),
+			"error", err,
+		)
+		return world.AgentAction{
+			ActorID: client.GetID(),
+			Type:    world.ActionIdle,
+			Reason:  reason,
+		}
+	}
+	return action
+}
+
+// decisionTimeout returns the configured per-agent decision budget, falling
+// back to the tick duration so decisions can't outlast the tick they belong to.
+func (e *Engine) decisionTimeout() time.Duration {
+	return tickOrDefault(e.DecisionTimeout, e.Tick)
 }
 
 // handleAction applies an agent action to the world and records an event.
