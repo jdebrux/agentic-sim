@@ -100,6 +100,25 @@ class GraphState(TypedDict):
     action: str
 
 
+def _as_text(content: str | list) -> str:
+    """Flatten a chat model's content into plain text.
+
+    Reasoning-capable models (via LiteLLM) can return a list of content
+    blocks — e.g. [{"type": "thinking", ...}, {"type": "text", "text": "..."}]
+    — instead of a plain string. A2A's TextPart requires a str, so this keeps
+    only the text blocks and drops thinking/tool-use/etc.
+    """
+    if isinstance(content, str):
+        return content
+    parts = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict) and block.get("type", "text") == "text":
+            parts.append(block.get("text", ""))
+    return "".join(parts)
+
+
 async def decide(state: GraphState) -> GraphState:
     response = await llm.ainvoke(
         [
@@ -107,7 +126,7 @@ async def decide(state: GraphState) -> GraphState:
             HumanMessage(content=state["world_view"]),
         ]
     )
-    return {"action": response.content}
+    return {"action": _as_text(response.content)}
 
 
 builder = StateGraph(GraphState)
