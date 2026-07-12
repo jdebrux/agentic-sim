@@ -11,9 +11,10 @@ services:
     environment:
       - AGENT_NAME=adk_agent
       - MODEL=${ADK_MODEL:-gpt-4o}
+      - API_BASE=${API_BASE:-}
+      - API_KEY=${API_KEY:-}
       - HOST=adk-agent
       - PORT=9001
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
 
   langgraph-agent:
     build: ./examples/langgraph-agent
@@ -22,10 +23,28 @@ services:
     environment:
       - AGENT_NAME=langgraph-agent
       - MODEL=${LANGGRAPH_MODEL:-gpt-4o}
+      - API_BASE=${API_BASE:-}
+      - API_KEY=${API_KEY:-}
       - HOST=langgraph-agent
       - PORT=9002
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
 
+# API_BASE/API_KEY/{ADK,LANGGRAPH}_MODEL are provider-agnostic: they're
+# forwarded as-is to LiteLLM, so the same three knobs work for OpenAI,
+# OpenRouter, or a self-hosted OpenAI-compatible server, e.g.:
+#
+#   # OpenAI directly
+#   export API_KEY=sk-...
+#
+#   # OpenRouter (pick a model slug from https://openrouter.ai/models)
+#   export API_KEY=sk-or-...
+#   export ADK_MODEL=openrouter/anthropic/claude-3.5-sonnet
+#   export LANGGRAPH_MODEL=openrouter/anthropic/claude-3.5-sonnet
+#
+#   # Self-hosted OpenAI-compatible endpoint (Ollama, vLLM, ...)
+#   export API_BASE=http://host.docker.internal:11434/v1
+#   export API_KEY=unused
+#   export ADK_MODEL=openai/llama3
+#
 # Start everything:
 #   docker compose up -d
 #

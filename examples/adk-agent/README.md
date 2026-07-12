@@ -7,7 +7,7 @@ It uses ADK's `to_a2a()` helper to expose an `LlmAgent` as an A2A server with al
 
 ```bash
 uv sync
-export OPENAI_API_KEY=sk-...   # or ANTHROPIC_API_KEY / GEMINI_API_KEY, matched to MODEL below
+export API_KEY=sk-...   # matched to MODEL below
 uv run main.py
 ```
 
@@ -21,7 +21,26 @@ The agent listens on `:9001` and serves its Agent Card at
 | `HOST`       | `localhost`  | Hostname advertised in the Agent Card (what simserver connects to) |
 | `PORT`       | `9001`       | Port to bind and advertise                                   |
 | `MODEL`      | `gpt-4o`     | Any [LiteLLM](https://docs.litellm.ai/docs/providers) model string |
+| `API_KEY`    | _(unset)_    | API key forwarded to LiteLLM as `api_key`. If unset, LiteLLM falls back to its normal provider auto-detection (e.g. reading `OPENAI_API_KEY` for a bare `gpt-4o`) |
+| `API_BASE`   | _(unset)_    | Custom API base URL forwarded to LiteLLM as `api_base` — set this for a self-hosted OpenAI-compatible server (Ollama, vLLM, ...) |
 | `AGENT_NAME` | `adk_agent`  | Must be a valid Python identifier (ADK requirement)           |
+
+`MODEL`/`API_BASE`/`API_KEY` are provider-agnostic — the same three env vars
+work for OpenAI, OpenRouter, or any self-hosted OpenAI-compatible endpoint:
+
+```bash
+# OpenAI directly
+export API_KEY=sk-...
+
+# OpenRouter (pick a model slug from https://openrouter.ai/models)
+export MODEL=openrouter/anthropic/claude-3.5-sonnet
+export API_KEY=sk-or-...
+
+# Self-hosted OpenAI-compatible endpoint (Ollama, vLLM, ...)
+export MODEL=openai/llama3
+export API_BASE=http://localhost:11434/v1
+export API_KEY=unused
+```
 
 ## Joining a simulation
 

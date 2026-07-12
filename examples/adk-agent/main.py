@@ -72,8 +72,19 @@ PORT = int(os.getenv("PORT", "9001"))
 MODEL = os.getenv("MODEL", "gpt-4o")
 AGENT_NAME = os.getenv("AGENT_NAME", "adk_agent")
 
+# API_BASE/API_KEY are optional and provider-agnostic: LiteLLM forwards them
+# as-is to whatever backend MODEL resolves to, so the same two env vars work
+# for OpenAI, OpenRouter, a self-hosted OpenAI-compatible server (Ollama,
+# vLLM, ...), etc. Leave them unset to fall back to LiteLLM's normal
+# provider auto-detection (e.g. reading OPENAI_API_KEY for a bare "gpt-4o").
+litellm_kwargs: dict[str, str] = {}
+if api_base := os.getenv("API_BASE"):
+    litellm_kwargs["api_base"] = api_base
+if api_key := os.getenv("API_KEY"):
+    litellm_kwargs["api_key"] = api_key
+
 root_agent = LlmAgent(
-    model=LiteLlm(model=MODEL),
+    model=LiteLlm(model=MODEL, **litellm_kwargs),
     name=AGENT_NAME,
     instruction=SYSTEM_PROMPT,
 )
