@@ -154,7 +154,6 @@ func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 			slog.Info("simulation duration complete")
 			return
 		case <-ticker.C:
-			step++
 			slog.Info("simulation tick", "step", step, "timestep", e.World.Timestep)
 
 			ctx, span := tracer.Start(ctx, "simulation.tick")
