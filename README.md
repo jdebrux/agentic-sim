@@ -149,12 +149,13 @@ Any process that can serve an A2A Agent Card and respond to `SendMessage` qualif
 
 Valid `action` values: `move`, `speak`, `greet`, `interact`, `trade`, `rest`, `idle` (see the field reference in `internal/world/action.go`). Malformed, non-JSON, or slow replies are treated as `idle` with a `reason` explaining why — they never fail the run.
 
-Two reference implementations exist in [`examples/`](examples/):
+Three reference implementations exist in [`examples/`](examples/):
 
 | Agent | Framework | Notes |
 |---|---|---|
 | [`examples/adk-agent`](examples/adk-agent) | Google ADK | Uses ADK's `to_a2a()` helper — minimal boilerplate |
 | [`examples/langgraph-agent`](examples/langgraph-agent) | LangGraph | Hand-wired A2A server around a one-node graph |
+| [`examples/go-agent`](examples/go-agent) | none (Go, no LLM) | Deterministic rule-based agent proving "no SDK required"; also backs the A2A end-to-end test in `internal/api/e2e_test.go` |
 
 Both route through [LiteLLM](https://docs.litellm.ai/docs/providers) via three generic env vars, so the same agent works against OpenAI, OpenRouter, or a self-hosted OpenAI-compatible endpoint (Ollama, vLLM, ...) with no code changes:
 
