@@ -54,7 +54,9 @@ func TestRunRecordPubSub(t *testing.T) {
 
 // TestManagerSubscribeAndEvents verifies the Manager wires a run's events
 // through to Events() and Subscribe(), and closes the live channel once the
-// run completes.
+// run completes. An agent-less run still ticks, so it emits tick snapshot
+// events (but no action events) — the backlog may already contain the
+// initial snapshot by the time Subscribe runs.
 func TestManagerSubscribeAndEvents(t *testing.T) {
 	factory := func(cfg EngineConfig) *Engine {
 		return &Engine{World: world.NewWorld(), Tick: cfg.Tick}
@@ -71,21 +73,94 @@ func TestManagerSubscribeAndEvents(t *testing.T) {
 		t.Fatalf("expected subscribe to find run %s", id)
 	}
 	defer unsubscribe()
-	if len(backlog) != 0 {
-		t.Fatalf("expected empty initial backlog, got %d", len(backlog))
-	}
 
-	select {
-	case _, ok := <-live:
-		if ok {
-			t.Fatalf("expected no events from an agent-less run")
+	sawSnapshot := len(backlog) > 0
+	for _, evt := range backlog {
+		if evt.Type != world.EventTypeTick {
+			t.Fatalf("expected only tick events from an agent-less run, got %s", evt.Type)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatalf("timed out waiting for run to complete and close the channel")
 	}
 
-	if _, ok := m.Events(id); !ok {
+drain:
+	for {
+		select {
+		case evt, ok := <-live:
+			if !ok {
+				break drain
+			}
+			if evt.Type != world.EventTypeTick {
+				t.Fatalf("expected only tick events from an agent-less run, got %s", evt.Type)
+			}
+			sawSnapshot = true
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for run to complete and close the channel")
+		}
+	}
+	if !sawSnapshot {
+		t.Fatalf("expected at least one tick snapshot event from the run")
+	}
+
+	events, ok := m.Events(id)
+	if !ok {
 		t.Fatalf("expected event history to be present for completed run %s", id)
+	}
+	if len(events) == 0 {
+		t.Fatalf("expected recorded event history to be non-empty")
+	}
+}
+
+// TestManagerWorldSnapshotAndList verifies WorldSnapshot returns the latest
+// world state for a run, and List reports every known run's status.
+func TestManagerWorldSnapshotAndList(t *testing.T) {
+	factory := func(cfg EngineConfig) *Engine {
+		return &Engine{World: world.NewWorld(), Tick: cfg.Tick}
+	}
+	m := NewInMemoryManager(factory)
+
+	id, err := m.Start(context.Background(), EngineConfig{Tick: 2 * time.Millisecond}, 200*time.Millisecond)
+	if err != nil {
+		t.Fatalf("unexpected error starting run: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var snap world.WorldSnapshot
+	for {
+		var ok bool
+		snap, ok = m.WorldSnapshot(id)
+		if ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for a world snapshot")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if len(snap.Locations) != 3 {
+		t.Fatalf("expected 3 default locations in snapshot, got %d", len(snap.Locations))
+	}
+
+	if _, ok := m.WorldSnapshot("missing"); ok {
+		t.Fatalf("expected WorldSnapshot to report not found for unknown id")
+	}
+
+	runs := m.List()
+	found := false
+	for _, rs := range runs {
+		if rs.ID == id {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected List to include run %s, got %+v", id, runs)
+	}
+
+	if ok := m.Delete(id); !ok {
+		t.Fatalf("expected delete to find run %s", id)
+	}
+	for _, rs := range m.List() {
+		if rs.ID == id {
+			t.Fatalf("expected run %s to be absent from List after Delete", id)
+		}
 	}
 }
 

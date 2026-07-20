@@ -23,6 +23,9 @@ type stubManager struct {
 	events map[string][]world.Event
 	subs   map[string]chan world.Event
 
+	list      []simulation.RunStatus
+	snapshots map[string]world.WorldSnapshot
+
 	deletable   map[string]bool
 	deletedIDs  []string
 	shutdownErr error
@@ -55,6 +58,15 @@ func (s *stubManager) Subscribe(id string) ([]world.Event, <-chan world.Event, f
 		return nil, nil, nil, false
 	}
 	return s.events[id], ch, func() {}, true
+}
+
+func (s *stubManager) List() []simulation.RunStatus {
+	return s.list
+}
+
+func (s *stubManager) WorldSnapshot(id string) (world.WorldSnapshot, bool) {
+	snap, ok := s.snapshots[id]
+	return snap, ok
 }
 
 func (s *stubManager) Delete(id string) bool {
@@ -191,6 +203,103 @@ func TestSimulate_ValidationErrors(t *testing.T) {
 				t.Fatalf("expected %d, got %d", tt.wantStatus, rec.Code)
 			}
 		})
+	}
+}
+
+func TestSimulateList(t *testing.T) {
+	m := &stubManager{
+		list: []simulation.RunStatus{
+			{ID: "run-1", State: "completed", Ticks: 3, Events: 5},
+			{ID: "run-2", State: "running", Ticks: 1, Events: 1},
+		},
+	}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/simulate", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"id":"run-1"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"id":"run-2"`)) {
+		t.Fatalf("expected both runs in body, got %s", rec.Body.String())
+	}
+}
+
+func TestSimulateList_EmptyRuns(t *testing.T) {
+	m := &stubManager{}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/simulate", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"runs":[]`)) {
+		t.Fatalf("expected empty runs array (not null), got %s", rec.Body.String())
+	}
+}
+
+func TestSimulateWorld(t *testing.T) {
+	m := &stubManager{
+		snapshots: map[string]world.WorldSnapshot{
+			"run-1": {
+				WorldID:  "world-1",
+				Timestep: 4,
+				Agents:   []world.AgentSnapshot{{ID: "alice", Name: "Alice", Location: "loc_market", Energy: 90, Credits: 12}},
+			},
+		},
+	}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/simulate/run-1/world", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"id":"alice"`)) {
+		t.Fatalf("expected agent in snapshot body, got %s", rec.Body.String())
+	}
+}
+
+func TestSimulateWorld_NotFound(t *testing.T) {
+	m := &stubManager{snapshots: map[string]world.WorldSnapshot{}}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/simulate/missing/world", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestSimulateWorld_MethodNotAllowed(t *testing.T) {
+	m := &stubManager{snapshots: map[string]world.WorldSnapshot{}}
+	h := newTestHandler(m)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/simulate/run-1/world", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rec.Code)
 	}
 }
 

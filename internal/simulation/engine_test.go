@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -285,6 +286,83 @@ func TestEngineRunCoversLoop(t *testing.T) {
 	}
 	if got := w.Agents[moveAgent.id].Location; got != "loc_target" {
 		t.Fatalf("expected mover to reach loc_target, got %s", got)
+	}
+}
+
+// TestEngineRunEmitsTickSnapshots verifies Run publishes a world.EventTypeTick
+// snapshot event before the loop starts and after every tick, that those
+// events reflect state changes made during the tick, and that they never
+// leak into World.Events (which feeds agents' WorldView.RecentEvents).
+func TestEngineRunEmitsTickSnapshots(t *testing.T) {
+	w := world.NewWorld()
+	w.Locations["loc_target"] = world.Location{ID: "loc_target"}
+	w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "Mover", Location: "loc_default"}
+
+	moveAgent := mockAgent{
+		id:   "agent-1",
+		name: "Mover",
+		action: world.AgentAction{
+			ActorID:  "agent-1",
+			Type:     world.ActionMove,
+			Location: "loc_target",
+		},
+	}
+
+	var mu sync.Mutex
+	var events []world.Event
+	engine := &Engine{
+		World:   w,
+		Clients: []AgentClient{moveAgent},
+		Tick:    5 * time.Millisecond,
+		OnEvent: func(evt world.Event) {
+			mu.Lock()
+			defer mu.Unlock()
+			events = append(events, evt)
+		},
+	}
+
+	engine.Run(context.Background(), 12*time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(events) == 0 {
+		t.Fatalf("expected at least the initial snapshot event")
+	}
+	if events[0].Type != world.EventTypeTick {
+		t.Fatalf("expected first event to be a tick snapshot, got %s", events[0].Type)
+	}
+	initialSnap, ok := events[0].Payload["snapshot"].(world.WorldSnapshot)
+	if !ok {
+		t.Fatalf("expected snapshot payload, got %+v", events[0].Payload)
+	}
+	if initialSnap.Timestep != 0 {
+		t.Fatalf("expected initial snapshot at timestep 0, got %d", initialSnap.Timestep)
+	}
+
+	var lastSnap *world.WorldSnapshot
+	for _, evt := range events {
+		if evt.Type != world.EventTypeTick {
+			continue
+		}
+		snap, ok := evt.Payload["snapshot"].(world.WorldSnapshot)
+		if !ok {
+			t.Fatalf("expected snapshot payload on tick event, got %+v", evt.Payload)
+		}
+		s := snap
+		lastSnap = &s
+	}
+	if lastSnap == nil {
+		t.Fatalf("expected at least one tick snapshot after the initial one")
+	}
+	if len(lastSnap.Agents) != 1 || lastSnap.Agents[0].Location != "loc_target" {
+		t.Fatalf("expected latest snapshot to show mover at loc_target, got %+v", lastSnap.Agents)
+	}
+
+	for _, evt := range w.Events {
+		if evt.Type == world.EventTypeTick {
+			t.Fatalf("expected no tick events in World.Events (would pollute agent WorldViews), found %+v", evt)
+		}
 	}
 }
 

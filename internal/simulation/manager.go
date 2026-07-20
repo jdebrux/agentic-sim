@@ -1,8 +1,10 @@
 package simulation
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -22,6 +24,13 @@ type Manager interface {
 	// The channel is closed once the run completes; call the returned
 	// unsubscribe func to stop listening early (e.g. on client disconnect).
 	Subscribe(id string) ([]world.Event, <-chan world.Event, func(), bool)
+	// List returns a status summary for every known run, sorted by ID (IDs
+	// are timestamps, so this is chronological).
+	List() []RunStatus
+	// WorldSnapshot returns the latest world snapshot recorded for a run.
+	// ok is false if the run is unknown or no snapshot has been emitted yet
+	// (a brief window right after Start).
+	WorldSnapshot(id string) (world.WorldSnapshot, bool)
 	// Delete forgets a run, freeing its history and subscribers. If the run
 	// is still active, its engine is signaled to stop as soon as possible;
 	// the underlying goroutine finishes asynchronously. Reports false if the
@@ -48,6 +57,7 @@ type runRecord struct {
 	mu       sync.RWMutex
 	status   RunStatus
 	events   []world.Event
+	latest   *world.WorldSnapshot
 	subs     map[chan world.Event]struct{}
 	finished bool
 }
@@ -58,6 +68,11 @@ type runRecord struct {
 func (r *runRecord) addEvent(evt world.Event) {
 	r.mu.Lock()
 	r.events = append(r.events, evt)
+	if evt.Type == world.EventTypeTick {
+		if snap, ok := evt.Payload["snapshot"].(world.WorldSnapshot); ok {
+			r.latest = &snap
+		}
+	}
 	subs := make([]chan world.Event, 0, len(r.subs))
 	for ch := range r.subs {
 		subs = append(subs, ch)
@@ -71,6 +86,21 @@ func (r *runRecord) addEvent(evt world.Event) {
 			slog.Warn("dropping event for slow SSE subscriber", "run", r.id)
 		}
 	}
+}
+
+// statusSnapshot returns the run's status, substituting live counts (history
+// length, latest snapshot timestep) while the run is still active.
+func (r *runRecord) statusSnapshot() RunStatus {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	st := r.status
+	if !r.finished {
+		st.Events = int64(len(r.events))
+		if r.latest != nil {
+			st.Ticks = r.latest.Timestep
+		}
+	}
+	return st
 }
 
 // eventsSnapshot returns a copy of the run's event history so far.
@@ -184,7 +214,7 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 
 		rec.mu.Lock()
 		rec.status.Ticks = engine.World.Timestep
-		rec.status.Events = m.safeEventsCount(engine)
+		rec.status.Events = int64(len(rec.events))
 		rec.status.State = "completed"
 		rec.mu.Unlock()
 
@@ -254,9 +284,42 @@ func (m *InMemoryManager) Status(id string) (RunStatus, bool) {
 	if !ok {
 		return RunStatus{}, false
 	}
+	return rec.statusSnapshot(), true
+}
+
+// List returns a status summary for every known run, sorted by ID.
+func (m *InMemoryManager) List() []RunStatus {
+	m.mu.RLock()
+	recs := make([]*runRecord, 0, len(m.runs))
+	for _, rec := range m.runs {
+		recs = append(recs, rec)
+	}
+	m.mu.RUnlock()
+
+	out := make([]RunStatus, 0, len(recs))
+	for _, rec := range recs {
+		out = append(out, rec.statusSnapshot())
+	}
+	slices.SortFunc(out, func(a, b RunStatus) int { return cmp.Compare(a.ID, b.ID) })
+	return out
+}
+
+// WorldSnapshot returns the latest world snapshot recorded for a run. ok is
+// false if the run is unknown or no snapshot has been emitted yet.
+func (m *InMemoryManager) WorldSnapshot(id string) (world.WorldSnapshot, bool) {
+	m.mu.RLock()
+	rec, ok := m.runs[id]
+	m.mu.RUnlock()
+	if !ok {
+		return world.WorldSnapshot{}, false
+	}
+
 	rec.mu.RLock()
 	defer rec.mu.RUnlock()
-	return rec.status, true
+	if rec.latest == nil {
+		return world.WorldSnapshot{}, false
+	}
+	return *rec.latest, true
 }
 
 func (m *InMemoryManager) Events(id string) ([]world.Event, bool) {
@@ -294,13 +357,6 @@ func (m *InMemoryManager) Metrics() ManagerMetrics {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.metrics
-}
-
-func (m *InMemoryManager) safeEventsCount(e *Engine) int64 {
-	if e == nil || e.World == nil {
-		return 0
-	}
-	return int64(len(e.World.Events))
 }
 
 func generateRunID() string {

@@ -84,15 +84,46 @@ type simulateResponse struct {
 }
 
 func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.simulateList(w, r)
+	case http.MethodPost:
+		h.simulateStart(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+type simulateListResponse struct {
+	Runs []simulateStatusResponse `json:"runs"`
+}
+
+// simulateList returns a status summary of every known run.
+func (h *Handler) simulateList(w http.ResponseWriter, r *http.Request) {
+	statuses := h.Manager.List()
+	resp := simulateListResponse{Runs: make([]simulateStatusResponse, 0, len(statuses))}
+	for _, st := range statuses {
+		item := simulateStatusResponse{
+			ID:     st.ID,
+			Status: st.State,
+			Ticks:  st.Ticks,
+			Events: st.Events,
+		}
+		if st.Error != "" {
+			item.Error = st.Error
+		}
+		resp.Runs = append(resp.Runs, item)
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// simulateStart handles POST /simulate: builds an EngineConfig from the
+// request body and starts a new run.
+func (h *Handler) simulateStart(w http.ResponseWriter, r *http.Request) {
 	tracer := otel.Tracer("api")
 	ctx, span := tracer.Start(r.Context(), "http.simulate")
 	defer span.End()
 	r = r.WithContext(ctx)
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 
 	var req simulateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -197,6 +228,8 @@ func (h *Handler) simulateRoute(w http.ResponseWriter, r *http.Request) {
 		h.simulateStream(w, r, id)
 	case sub == "events":
 		h.simulateEvents(w, r, id)
+	case sub == "world":
+		h.simulateWorld(w, r, id)
 	default:
 		http.Error(w, "not found", http.StatusNotFound)
 	}
@@ -262,6 +295,24 @@ func (h *Handler) simulateEvents(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	writeJSON(w, http.StatusOK, simulateEventsResponse{ID: id, Events: events})
+}
+
+// simulateWorld returns the latest world snapshot recorded for a run. 404 if
+// the run is unknown, or if it hasn't emitted its first snapshot yet (a
+// brief window right after Start) — callers should fall back to the first
+// "tick" event from the stream endpoint in that case.
+func (h *Handler) simulateWorld(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	snap, ok := h.Manager.WorldSnapshot(id)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, snap)
 }
 
 // simulateStream streams a run's events as Server-Sent Events in real time,

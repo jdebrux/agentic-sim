@@ -49,6 +49,9 @@ type Engine struct {
 	// OnEvent, if set, is invoked synchronously with every event the engine
 	// records, in tick order. Used by the Manager to fan events out to
 	// history buffers and live subscribers (e.g. the SSE stream endpoint).
+	// Published events (their Payload map and any slices reachable from it)
+	// are never mutated afterward — this lets subscribers hold onto them
+	// safely while the engine keeps mutating World on later ticks.
 	OnEvent func(world.Event)
 }
 
@@ -154,6 +157,8 @@ func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 
 	end := time.After(duration)
 
+	e.emitSnapshot()
+
 	for step := 0; ; step++ {
 		select {
 		case <-ctx.Done():
@@ -180,10 +185,32 @@ func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 			e.World.Advance(ctx)
 			e.Metrics.Ticks++
 			telemetry.RecordTick(ctx)
+			e.emitSnapshot()
 
 			span.End()
 		}
 	}
+}
+
+// emitSnapshot publishes a world.EventTypeTick event carrying a deep-copied
+// world.WorldSnapshot through OnEvent. It intentionally does not call
+// World.AddEvent or increment Metrics.Events: tick snapshots are for
+// external observers (e.g. the UI), not for agents, and appending them to
+// World.Events would flood every agent's WorldView.RecentEvents with full
+// world dumps instead of action history.
+func (e *Engine) emitSnapshot() {
+	if e.OnEvent == nil {
+		return
+	}
+	snap := world.Snapshot(e.World)
+	e.OnEvent(world.Event{
+		ID:        fmt.Sprintf("evt-tick-%d-%d", snap.Timestep, time.Now().UnixNano()),
+		WorldID:   e.World.ID,
+		Tick:      snap.Timestep,
+		Timestamp: time.Now(),
+		Type:      world.EventTypeTick,
+		Payload:   map[string]any{"snapshot": snap},
+	})
 }
 
 // decideActions asks every client to decide its action concurrently, each
