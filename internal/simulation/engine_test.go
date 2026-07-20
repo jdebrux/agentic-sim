@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jdebrux/agentic-sim/internal/telemetry"
 	"github.com/jdebrux/agentic-sim/internal/world"
 )
 
@@ -363,6 +364,53 @@ func TestEngineRunEmitsTickSnapshots(t *testing.T) {
 		if evt.Type == world.EventTypeTick {
 			t.Fatalf("expected no tick events in World.Events (would pollute agent WorldViews), found %+v", evt)
 		}
+	}
+}
+
+// runIDCapturingAgent records the run_id visible in its ctx when Decide is
+// called, proving run_id propagates all the way to the agent client (and,
+// transitively, into the A2A client's telemetry calls, which read it off
+// the same ctx via telemetry.RunIDFromContext).
+type runIDCapturingAgent struct {
+	id, name string
+	mu       *sync.Mutex
+	captured *string
+}
+
+func (a runIDCapturingAgent) GetID() string   { return a.id }
+func (a runIDCapturingAgent) GetName() string { return a.name }
+func (a runIDCapturingAgent) Decide(ctx context.Context, view world.WorldView) (world.AgentAction, error) {
+	_ = view
+	a.mu.Lock()
+	*a.captured = telemetry.RunIDFromContext(ctx)
+	a.mu.Unlock()
+	return world.AgentAction{ActorID: a.id, Type: world.ActionIdle}, nil
+}
+
+// TestEngineRunPropagatesRunID verifies Engine.RunID reaches agent clients'
+// Decide calls via context, which is how the A2A client's telemetry helpers
+// (which have no other access to the engine) get tagged with run_id.
+func TestEngineRunPropagatesRunID(t *testing.T) {
+	w := world.NewWorld()
+	w.Agents["agent-1"] = &world.AgentState{ID: "agent-1", Name: "A", Location: "loc_default"}
+
+	var mu sync.Mutex
+	var captured string
+	agent := runIDCapturingAgent{id: "agent-1", name: "A", mu: &mu, captured: &captured}
+
+	engine := &Engine{
+		World:   w,
+		Clients: []AgentClient{agent},
+		Tick:    5 * time.Millisecond,
+		RunID:   "run-xyz",
+	}
+
+	engine.Run(context.Background(), 8*time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if captured != "run-xyz" {
+		t.Fatalf("expected run_id run-xyz to propagate to Decide's context, got %q", captured)
 	}
 }
 

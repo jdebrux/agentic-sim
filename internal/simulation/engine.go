@@ -41,6 +41,12 @@ type Engine struct {
 	Clients []AgentClient
 	Tick    time.Duration
 	Metrics Metrics
+	// RunID identifies this run for observability: it's set as a run_id
+	// attribute on every span and metric the engine and its agent clients
+	// record, so a single run's activity can be isolated in traces/metrics.
+	// Set by the Manager; zero-value is fine for direct Engine use (no
+	// attribute is added).
+	RunID string
 	// DecisionTimeout bounds how long a single agent's Decide call may run
 	// before the engine gives up on it and substitutes idle. Defaults to
 	// Tick when zero, so one slow or hung agent can delay a tick but never
@@ -152,6 +158,11 @@ func tickOrDefault(t time.Duration, def time.Duration) time.Duration {
 func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 	tracer := otel.Tracer("simulation.engine")
 
+	ctx = telemetry.WithRunID(ctx, e.RunID)
+	ctx, runSpan := tracer.Start(ctx, "simulation.run")
+	runSpan.SetAttributes(attribute.String("run_id", e.RunID))
+	defer runSpan.End()
+
 	ticker := time.NewTicker(e.Tick)
 	defer ticker.Stop()
 
@@ -175,6 +186,7 @@ func (e *Engine) Run(ctx context.Context, duration time.Duration) {
 				attribute.Int("tick.step", step),
 				attribute.Int64("world.timestep", e.World.Timestep),
 				attribute.Int("agent.count", len(e.Clients)),
+				attribute.String("run_id", e.RunID),
 			)
 
 			actions := e.decideActions(ctx)

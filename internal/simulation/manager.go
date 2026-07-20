@@ -201,6 +201,7 @@ func (m *InMemoryManager) Start(ctx context.Context, cfg EngineConfig, duration 
 		defer cancel()
 
 		engine := m.newEngine(cfg)
+		engine.RunID = id
 		engine.OnEvent = rec.addEvent
 		engine.Clients = m.connectAgents(runCtx, cfg)
 		engine.Run(runCtx, duration)

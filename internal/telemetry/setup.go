@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"os"
+	"strings"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -56,7 +57,7 @@ func setupTracer(ctx context.Context, res *resource.Resource) (func(context.Cont
 	var err error
 
 	if endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); endpoint != "" {
-		exporter, err = otlptracegrpc.New(ctx, otlptracegrpc.WithEndpoint(endpoint))
+		exporter, err = otlptracegrpc.New(ctx, otlpTraceEndpointOption(endpoint))
 	} else {
 		exporter, err = stdouttrace.New(stdouttrace.WithPrettyPrint())
 	}
@@ -77,7 +78,7 @@ func setupMeter(ctx context.Context, res *resource.Resource) (func(context.Conte
 	var reader sdkmetric.Reader
 
 	if endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); endpoint != "" {
-		exporter, err := otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithEndpoint(endpoint))
+		exporter, err := otlpmetricgrpc.New(ctx, otlpMetricEndpointOption(endpoint))
 		if err != nil {
 			return nil, err
 		}
@@ -93,4 +94,25 @@ func setupMeter(ctx context.Context, res *resource.Resource) (func(context.Conte
 	otel.SetMeterProvider(mp)
 
 	return mp.Shutdown, nil
+}
+
+// otlpTraceEndpointOption picks the right way to configure the OTLP trace
+// exporter's endpoint. WithEndpoint (bare host:port) always dials with TLS,
+// which silently fails against a plaintext collector like otel-lgtm's
+// OTLP/gRPC port — so a URL-form endpoint (containing a scheme) uses
+// WithEndpointURL instead, whose "http" scheme is treated as insecure.
+func otlpTraceEndpointOption(endpoint string) otlptracegrpc.Option {
+	if strings.Contains(endpoint, "://") {
+		return otlptracegrpc.WithEndpointURL(endpoint)
+	}
+	return otlptracegrpc.WithEndpoint(endpoint)
+}
+
+// otlpMetricEndpointOption is the metrics-exporter counterpart of
+// otlpTraceEndpointOption; see its doc comment for why this matters.
+func otlpMetricEndpointOption(endpoint string) otlpmetricgrpc.Option {
+	if strings.Contains(endpoint, "://") {
+		return otlpmetricgrpc.WithEndpointURL(endpoint)
+	}
+	return otlpmetricgrpc.WithEndpoint(endpoint)
 }
