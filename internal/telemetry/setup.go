@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -15,6 +16,13 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
+
+// metricExportInterval overrides the SDK's 60s default. Simulation runs are
+// commonly shorter than that, so the default leaves rate()/increase()-based
+// Grafana panels with at most one data point — never enough to show a
+// non-empty rate. 5s keeps short demo runs visible without being a
+// meaningfully heavier load than the default.
+const metricExportInterval = 5 * time.Second
 
 // Setup initializes OpenTelemetry tracing and metrics.
 // If OTEL_EXPORTER_OTLP_ENDPOINT is set, exports to OTLP (gRPC).
@@ -82,7 +90,7 @@ func setupMeter(ctx context.Context, res *resource.Resource) (func(context.Conte
 		if err != nil {
 			return nil, err
 		}
-		reader = sdkmetric.NewPeriodicReader(exporter)
+		reader = sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(metricExportInterval))
 	} else {
 		reader = sdkmetric.NewManualReader()
 	}
