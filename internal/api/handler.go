@@ -36,6 +36,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/simulate", h.simulate)
 	mux.HandleFunc("/simulate/", h.simulateRoute)
 	mux.HandleFunc("/metrics", h.metrics)
+	registerUI(mux)
 }
 
 type healthResponse struct {
