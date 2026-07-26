@@ -84,6 +84,31 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 5,
+      "title": "Traces",
+      "description": "Every trace for the selected run: simulation.run -> simulation.tick -> agent.decide/world.apply_action -> agent.a2a_roundtrip. Click a row to open the full flame graph.",
+      "type": "table",
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "Start time" }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "queryType": "traceql",
+          "query": "{span.run_id=~\"$run_id\"}",
+          "tableType": "traces",
+          "limit": 20,
+          "spss": 20,
+          "filters": [],
+          "refId": "A"
+        }
+      ]
     }
   ]
 }
