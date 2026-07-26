@@ -7,27 +7,29 @@ import { renderHud, renderEventLog } from "./hud.js";
 // generic onmessage handler — each type needs its own addEventListener.
 const EVENT_TYPES = ["tick", "idle", "move", "speak", "interact", "greet", "trade", "rest"];
 
+// Defaults to the deterministic, no-LLM examples/go-agent flow (rule: move
+// to the market, then trade), reachable at these URLs when two instances are
+// run locally per README/CLAUDE.md ("PORT=9101 go run ./examples/go-agent"
+// and "PORT=9102 ..."). Swap to the docker-compose adk-agent/langgraph-agent
+// URLs (see docker-compose.yml's comment block) when testing the full LLM
+// stack instead.
 const DEFAULT_AGENTS_JSON = {
   agents: [
     {
-      id: "alice",
-      name: "Alice",
+      id: "a",
+      name: "A",
       location: "loc_default",
-      traits: { friendliness: 7, curiosity: 3 },
-      goals: ["explore", "trade"],
       energy: 100,
       credits: 10,
-      agent_card_url: "http://adk-agent:9001",
+      agent_card_url: "http://127.0.0.1:9101",
     },
     {
-      id: "bob",
-      name: "Bob",
+      id: "b",
+      name: "B",
       location: "loc_default",
-      traits: { friendliness: 4, curiosity: 8 },
-      goals: ["gather_info"],
       energy: 100,
-      credits: 5,
-      agent_card_url: "http://langgraph-agent:9002",
+      credits: 10,
+      agent_card_url: "http://127.0.0.1:9102",
     },
   ],
 };
