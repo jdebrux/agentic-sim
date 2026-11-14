@@ -75,6 +75,8 @@ func TestE2E_RuleAgentsMoveAndTrade(t *testing.T) {
 
 	movedWithoutError := map[string]bool{}
 	sawSuccessfulTrade := false
+	var lastSnapshotAgents []string
+	tickEventCount := 0
 	for _, evt := range events {
 		_, hasErr := evt.Payload["error"]
 		switch evt.Type {
@@ -86,6 +88,9 @@ func TestE2E_RuleAgentsMoveAndTrade(t *testing.T) {
 			if _, ok := evt.Payload["credits_transferred"]; ok && !hasErr {
 				sawSuccessfulTrade = true
 			}
+		case world.EventTypeTick:
+			tickEventCount++
+			lastSnapshotAgents = snapshotAgentIDs(t, evt)
 		}
 	}
 	if !movedWithoutError["a"] || !movedWithoutError["b"] {
@@ -93,6 +98,12 @@ func TestE2E_RuleAgentsMoveAndTrade(t *testing.T) {
 	}
 	if !sawSuccessfulTrade {
 		t.Fatalf("expected at least one successful trade event, got events: %+v", events)
+	}
+	if tickEventCount == 0 {
+		t.Fatalf("expected at least one tick snapshot event, got events: %+v", events)
+	}
+	if len(lastSnapshotAgents) != 2 {
+		t.Fatalf("expected the final tick snapshot to list both agents, got %v", lastSnapshotAgents)
 	}
 
 	statusResp, err := client.Get(simURL + "/simulate/" + simResp.ID)
@@ -110,6 +121,68 @@ func TestE2E_RuleAgentsMoveAndTrade(t *testing.T) {
 	if status.Ticks <= 0 {
 		t.Fatalf("expected ticks > 0, got %d", status.Ticks)
 	}
+
+	listResp, err := client.Get(simURL + "/simulate")
+	if err != nil {
+		t.Fatalf("GET /simulate: %v", err)
+	}
+	defer listResp.Body.Close()
+	var list simulateListBody
+	if err := json.NewDecoder(listResp.Body).Decode(&list); err != nil {
+		t.Fatalf("decode /simulate list response: %v", err)
+	}
+	found := false
+	for _, rs := range list.Runs {
+		if rs.ID == simResp.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected GET /simulate to list run %s, got %+v", simResp.ID, list.Runs)
+	}
+
+	worldResp, err := client.Get(simURL + "/simulate/" + simResp.ID + "/world")
+	if err != nil {
+		t.Fatalf("GET /simulate/{id}/world: %v", err)
+	}
+	defer worldResp.Body.Close()
+	if worldResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(worldResp.Body)
+		t.Fatalf("expected 200 from /simulate/{id}/world, got %d: %s", worldResp.StatusCode, b)
+	}
+	var snap world.WorldSnapshot
+	if err := json.NewDecoder(worldResp.Body).Decode(&snap); err != nil {
+		t.Fatalf("decode world snapshot response: %v", err)
+	}
+	if len(snap.Agents) != 2 {
+		t.Fatalf("expected 2 agents in final world snapshot, got %+v", snap.Agents)
+	}
+}
+
+// snapshotAgentIDs extracts the agent IDs from a tick event's snapshot
+// payload. Since the event was JSON-decoded, the payload's "snapshot" value
+// is a generic map, not a typed world.WorldSnapshot — re-marshal/unmarshal
+// it into the real type to inspect it.
+func snapshotAgentIDs(t *testing.T, evt world.Event) []string {
+	t.Helper()
+
+	raw, ok := evt.Payload["snapshot"]
+	if !ok {
+		t.Fatalf("expected tick event to carry a snapshot payload, got %+v", evt.Payload)
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal snapshot payload: %v", err)
+	}
+	var snap world.WorldSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		t.Fatalf("unmarshal snapshot payload: %v", err)
+	}
+	ids := make([]string, len(snap.Agents))
+	for i, a := range snap.Agents {
+		ids[i] = a.ID
+	}
+	return ids
 }
 
 // startAgentServer boots a real goagent instance on a system-chosen port and
@@ -213,4 +286,8 @@ type simulateStatusBody struct {
 	Ticks  int64  `json:"ticks"`
 	Events int64  `json:"events"`
 	Error  string `json:"error,omitempty"`
+}
+
+type simulateListBody struct {
+	Runs []simulateStatusBody `json:"runs"`
 }

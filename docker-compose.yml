@@ -3,6 +3,23 @@ services:
     build: .
     ports:
       - "8080:8080"
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://lgtm:4317
+    depends_on:
+      - lgtm
+
+  # All-in-one OpenTelemetry backend (Prometheus + Tempo + Loki + Grafana),
+  # collecting the traces/metrics simserver exports. Grafana UI: :3000
+  # (anonymous admin). OTLP/gRPC (what simserver speaks): :4317.
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./deploy/grafana/agentic-sim-dashboard.json:/otel-lgtm/grafana/conf/provisioning/dashboards/custom/agentic-sim-dashboard.json:ro
+      - ./deploy/grafana/dashboards-provisioning.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/custom.yaml:ro
 
   adk-agent:
     build: ./examples/adk-agent
